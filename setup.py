@@ -12,7 +12,7 @@ with open('gbmframework/__init__.py', 'r') as f:
 
 setup(
     name="gbmframework",
-    version=get_version(),
+    version=version,
     packages=find_packages(),
     install_requires=[
         "numpy",
