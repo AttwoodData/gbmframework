@@ -382,7 +382,7 @@ class GBMTuner:
         X_test = X_test if X_test is not None else self.X_val
         y_test = y_test if y_test is not None else self.y_val
         
-        # Create model with best parameters - FIX HERE
+        # Create model using factory
         from gbmframework import GBMFactory
         model = GBMFactory.create_model(self.model_type, random_state=self.random_state)
         
