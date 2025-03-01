@@ -356,8 +356,8 @@ class GBMTuner:
         plt.tight_layout()
         plt.show()
     
-Here's the train_best_model method with the indentation adjusted for easier pasting:
-pythonCopy    def train_best_model(self, X_train=None, y_train=None, X_test=None, y_test=None,
+
+    def train_best_model(self, X_train=None, y_train=None, X_test=None, y_test=None,
                         create_shap_plots=True, create_importance_plots=True):
         """
         Train a model with the best parameters.
