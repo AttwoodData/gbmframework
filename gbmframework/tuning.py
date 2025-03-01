@@ -356,7 +356,8 @@ class GBMTuner:
         plt.tight_layout()
         plt.show()
     
-    def train_best_model(self, X_train=None, y_train=None, X_test=None, y_test=None,
+Here's the train_best_model method with the indentation adjusted for easier pasting:
+pythonCopy    def train_best_model(self, X_train=None, y_train=None, X_test=None, y_test=None,
                         create_shap_plots=True, create_importance_plots=True):
         """
         Train a model with the best parameters.
@@ -381,8 +382,10 @@ class GBMTuner:
         X_test = X_test if X_test is not None else self.X_val
         y_test = y_test if y_test is not None else self.y_val
         
-        # Create model with best parameters
-        model = self.model_class(random_state=self.random_state)
+        # Create model with best parameters - FIX HERE
+        from gbmframework import GBMFactory
+        model = GBMFactory.create_model(self.model_type, random_state=self.random_state)
+        
         model.fit(
             X_train=X_train,
             X_test=X_test,
