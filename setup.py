@@ -19,8 +19,8 @@ setup(
         'hyperopt': ['hyperopt'],
         'all': ['xgboost', 'lightgbm', 'catboost', 'hyperopt']
     },
-    author="Your Name",
-    author_email="your.email@example.com",
+    author="Mark Attwood + Claude 3.7",
+    author_email="attwoodanalytics@gmail.com",
     description="A unified framework for Gradient Boosting Models with SHAP analysis",
     keywords="machine learning, gradient boosting, xgboost, lightgbm, catboost, shap",
     url="https://github.com/yourusername/gbmframework",
