@@ -2,15 +2,13 @@ from setuptools import setup, find_packages
 import os
 import re
 
-def get_version():
-    version_file = os.path.join('gbmframework', '_version.py')
-    with open(version_file, 'r') as f:
-        version_line = f.read()
-    version_regex = r"^__version__ = ['\"]([^'\"]*)['\"]"
-    match = re.search(version_regex, version_line, re.M)
-    if match:
-        return match.group(1)
-    raise RuntimeError("Unable to find version string.")
+# Read version without importing the package
+with open('gbmframework/__init__.py', 'r') as f:
+    version_match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]", f.read(), re.M)
+    if version_match:
+        version = version_match.group(1)
+    else:
+        raise RuntimeError("Unable to find version string.")
 
 setup(
     name="gbmframework",
