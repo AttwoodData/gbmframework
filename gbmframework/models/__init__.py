@@ -9,6 +9,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from ._version import __version__
+
 # Import model implementations if dependencies are available
 try:
     from .xgboost_model import XGBoostModel

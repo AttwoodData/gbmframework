@@ -1,8 +1,20 @@
 from setuptools import setup, find_packages
+import os
+import re
+
+def get_version():
+    version_file = os.path.join('gbmframework', '_version.py')
+    with open(version_file, 'r') as f:
+        version_line = f.read()
+    version_regex = r"^__version__ = ['\"]([^'\"]*)['\"]"
+    match = re.search(version_regex, version_line, re.M)
+    if match:
+        return match.group(1)
+    raise RuntimeError("Unable to find version string.")
 
 setup(
     name="gbmframework",
-    version="0.1.1",
+    version=get_version(),
     packages=find_packages(),
     install_requires=[
         "numpy",
