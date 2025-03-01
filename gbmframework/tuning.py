@@ -20,43 +20,35 @@ class GBMTuner:
     """
     
     def __init__(self, model_class, X_train, X_val, y_train, y_val, 
-                 metric='roc_auc', cv=5, random_state=42):
-        """
-        Initialize the tuner with data and model class.
-        
-        Parameters:
-        -----------
-        model_class : GBMBase
-            The GBM model class to tune (XGBoostModel, LightGBMModel, or CatBoostModel)
-        X_train : pandas.DataFrame
-            Training features
-        X_val : pandas.DataFrame
-            Validation features
-        y_train : pandas.Series
-            Training target
-        y_val : pandas.Series
-            Validation target
-        metric : str, optional (default='roc_auc')
-            Metric to optimize ('accuracy', 'roc_auc', etc.)
-        cv : int, optional (default=5)
-            Number of cross-validation folds
-        random_state : int, optional (default=42)
-            Random seed for reproducibility
-        """
-        self.model_class = model_class
-        self.X_train = X_train
-        self.X_val = X_val
-        self.y_train = y_train
-        self.y_val = y_val
-        self.metric = metric
-        self.cv = cv
-        self.random_state = random_state
-        self.best_params = None
-        self.best_score = None
-        self.trials = None
-        
-        # Determine model type from class name
+             metric='roc_auc', cv=5, random_state=42):
+    """
+    Initialize the tuner with data and model class.
+    
+    Parameters:
+    -----------
+    model_class : str or GBMBase
+        The model type ('xgboost', 'lightgbm', 'catboost') or a model class
+    """
+    self.X_train = X_train
+    self.X_val = X_val
+    self.y_train = y_train
+    self.y_val = y_val
+    self.metric = metric
+    self.cv = cv
+    self.random_state = random_state
+    self.best_params = None
+    self.best_score = None
+    self.trials = None
+    
+    # Determine model type from input
+    if isinstance(model_class, str):
+        self.model_type = model_class.lower()
+    else:
+        # It's a model instance
         self.model_type = model_class.__class__.__name__.replace('Model', '').lower()
+        # Store model class type for later use
+        from gbmframework import GBMFactory
+        self.model_class_type = type(model_class)
         
     def _get_search_space(self):
         """
@@ -161,11 +153,13 @@ class GBMTuner:
         --------
         dict: Result dictionary for Hyperopt
         """
+        def _objective(self, params):
         # Map parameters to model-specific format
         model_params = self._map_params(params)
-        
+    
         # Create model instance
-        model = self.model_class(random_state=self.random_state)
+        from gbmframework import GBMFactory
+        model = GBMFactory.create_model(self.model_type, random_state=self.random_state)
         
         # Use cross-validation if cv > 1, otherwise use validation set
         if self.cv > 1:
