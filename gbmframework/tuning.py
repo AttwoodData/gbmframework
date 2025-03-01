@@ -23,7 +23,7 @@ class GBMTuner:
                  metric='roc_auc', cv=5, random_state=42):
         """
         Initialize the tuner with data and model class.
-        
+    
         Parameters:
         -----------
         model_class : GBMBase
@@ -39,7 +39,7 @@ class GBMTuner:
         metric : str, optional (default='roc_auc')
             Metric to optimize ('accuracy', 'roc_auc', etc.)
         cv : int, optional (default=5)
-            Number of cross-validation folds
+        Number of cross-validation folds
         random_state : int, optional (default=42)
             Random seed for reproducibility
         """
@@ -54,9 +54,13 @@ class GBMTuner:
         self.best_params = None
         self.best_score = None
         self.trials = None
-        
+    
         # Determine model type from class name
-        self.model_type = model_class.__class__.__name__.replace('Model', '').lower()
+        if hasattr(model_class, '__class__'):
+            self.model_type = model_class.__class__.__name__.replace('Model', '').lower()
+        else:
+            # Assume it's a string
+            self.model_type = str(model_class).lower()
         
     def _get_search_space(self):
         """
@@ -163,9 +167,14 @@ class GBMTuner:
         """
         # Map parameters to model-specific format
         model_params = self._map_params(params)
-        
-        # Create model instance
-        model = self.model_class(random_state=self.random_state)
+    
+        # Create model instance - FIX HERE
+        from gbmframework import GBMFactory
+    
+    
+        # Create a new model using the factory
+        model_type = self.model_type
+        model = GBMFactory.create_model(model_type, random_state=self.random_state)
         
         # Use cross-validation if cv > 1, otherwise use validation set
         if self.cv > 1:
