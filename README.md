@@ -49,6 +49,7 @@ pip install gbmframework[all]
 ## Quick Start
 
 ```python
+import pandas as pd
 from gbmframework import GBMFactory, utils
 from sklearn.datasets import load_breast_cancer
 
