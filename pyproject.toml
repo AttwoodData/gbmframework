@@ -66,17 +66,10 @@ docs = [
 
 [project.urls]
 "Homepage" = "https://github.com/AttwoodData/gbmframework"
-"Bug Tracker" = ""
+"Bug Tracker" = "https://github.com/AttwoodData/gbmframework/issues"
 "Documentation" = "https://github.com/AttwoodData/gbmframework#readme"
 "Source Code" = "https://github.com/AttwoodData/gbmframework"
 
-[tools.setuptools]
-package-dir = {"" = "src"}
-
-[tools.setuptools.packages.find]
+[tool.setuptools.packages.find]
 where = ["src"]
 requires-python = ">=3.8"
-
-[project.urls]
-"Homepage" = "https://github.com/AttwoodData/gbmframework"
-"Bug Tracker" = "https://github.com/AttwoodData/gbmframework/issues"

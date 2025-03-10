@@ -1,4 +1,3 @@
-
 def visualize_shap(shap_result, plot_type='summary', class_index=1, max_display=20, 
                  plot_size=(12, 8), plot_title=None, output_file=None, optimizer=None):
     """
@@ -358,94 +357,7 @@ def visualize_shap(shap_result, plot_type='summary', class_index=1, max_display=
             os.environ["OMP_NUM_THREADS"] = old_threads
         
         # Re-raise the exception
-        raise e"""
-SHAP Utilities - Functions for generating and visualizing SHAP values
-"""
-
-import time
-import os
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-
-
-def generate_shap_values(model, X, algorithm_type, X_train=None, sample_size=None, 
-                       background_size=100, verbose=1, optimizer=None):
-    """
-    Generate SHAP values for a trained gradient boosted tree model.
-    
-    Parameters:
-    -----------
-    model : model object
-        Trained model (XGBoost, LightGBM, CatBoost, or RandomForest)
-    X : pandas.DataFrame or numpy.ndarray
-        Feature dataset for SHAP calculation (typically X_test or a sample)
-    algorithm_type : str
-        Type of GBT algorithm: "xgboost", "lightgbm", "catboost", or "randomforest"
-    X_train : pandas.DataFrame or numpy.ndarray, optional
-        Training data, required for CatBoost SHAP calculation
-    sample_size : int, optional
-        Number of samples to use for SHAP calculation (to reduce computation time)
-    background_size : int, default=100
-        Number of samples to use for background distribution (for non-tree models)
-    verbose : int, default=1
-        Verbosity level (0: silent, 1: normal, 2: detailed)
-    optimizer : SystemOptimizer, optional
-        System optimizer instance for multicore optimization
-        
-    Returns:
-    --------
-    dict
-        Dictionary containing SHAP values, explainer, and feature importance
-    """
-    try:
-        import shap
-    except ImportError:
-        raise ImportError("SHAP not installed. Install using: pip install shap")
-    
-    start_time = time.time()
-    
-    # Apply thread optimization if optimizer is provided
-    old_threads = None
-    if optimizer is not None and hasattr(optimizer, 'system_info'):
-        old_threads = os.environ.get("OMP_NUM_THREADS", None)
-        shap_threads = optimizer.system_info.get('shap_threads', None)
-        if shap_threads is not None:
-            os.environ["OMP_NUM_THREADS"] = str(shap_threads)
-            if verbose > 0:
-                print(f"SHAP calculation will use {shap_threads} threads")
-        
-        # Determine optimal sample size based on memory if not provided
-        if sample_size is None and hasattr(X, 'shape'):
-            available_mem_mb = optimizer.system_info.get('available_memory_gb', 4) * 1024
-            n_features = X.shape[1] if len(X.shape) > 1 else 1
-            # Heuristic: estimate memory needed per sample based on features
-            safe_sample_size = min(len(X), int(available_mem_mb / (n_features * 2.0)))
-            sample_size = max(100, min(1000, safe_sample_size))
-            if verbose > 0:
-                print(f"Auto-selected sample size: {sample_size} based on available memory")
-    
-    try:
-        # Handle feature names
-        if hasattr(X, 'columns'):
-            feature_names = X.columns.tolist()
-        else:
-            feature_names = [f'feature_{i}' for i in range(X.shape[1])]
-        
-        # Sample data if requested (to reduce computation time)
-        if sample_size is not None and sample_size < len(X):
-            if hasattr(X, 'sample'):
-                X_sample = X.sample(sample_size, random_state=42)
-            else:
-                indices = np.random.RandomState(42).choice(len(X), sample_size, replace=False)
-                X_sample = X[indices]
-            if verbose > 0:
-                print(f"Using {sample_size} samples for SHAP calculation (reduced from {len(X)})")
-        else:
-            X_sample = X
-            if verbose > 0:
-                print(f"Using all {len(X_sample)} samples for SHAP calculation")
-        
+        raise e        
         # Special handling for CatBoost using native SHAP calculation
         if algorithm_type.lower() == "catboost":
             if X_train is None:
@@ -571,4 +483,90 @@ def generate_shap_values(model, X, algorithm_type, X_train=None, sample_size=Non
                     if old_threads is not None:
                         os.environ["OMP_NUM_THREADS"] = old_threads
                     
-                    return result
+                    return result"""
+SHAP Utilities - Functions for generating and visualizing SHAP values
+"""
+
+import time
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+def generate_shap_values(model, X, algorithm_type, X_train=None, sample_size=None, 
+                       background_size=100, verbose=1, optimizer=None):
+    """
+    Generate SHAP values for a trained gradient boosted tree model.
+    
+    Parameters:
+    -----------
+    model : model object
+        Trained model (XGBoost, LightGBM, CatBoost, or RandomForest)
+    X : pandas.DataFrame or numpy.ndarray
+        Feature dataset for SHAP calculation (typically X_test or a sample)
+    algorithm_type : str
+        Type of GBT algorithm: "xgboost", "lightgbm", "catboost", or "randomforest"
+    X_train : pandas.DataFrame or numpy.ndarray, optional
+        Training data, required for CatBoost SHAP calculation
+    sample_size : int, optional
+        Number of samples to use for SHAP calculation (to reduce computation time)
+    background_size : int, default=100
+        Number of samples to use for background distribution (for non-tree models)
+    verbose : int, default=1
+        Verbosity level (0: silent, 1: normal, 2: detailed)
+    optimizer : SystemOptimizer, optional
+        System optimizer instance for multicore optimization
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing SHAP values, explainer, and feature importance
+    """
+    try:
+        import shap
+    except ImportError:
+        raise ImportError("SHAP not installed. Install using: pip install shap")
+    
+    start_time = time.time()
+    
+    # Apply thread optimization if optimizer is provided
+    old_threads = None
+    if optimizer is not None and hasattr(optimizer, 'system_info'):
+        old_threads = os.environ.get("OMP_NUM_THREADS", None)
+        shap_threads = optimizer.system_info.get('shap_threads', None)
+        if shap_threads is not None:
+            os.environ["OMP_NUM_THREADS"] = str(shap_threads)
+            if verbose > 0:
+                print(f"SHAP calculation will use {shap_threads} threads")
+        
+        # Determine optimal sample size based on memory if not provided
+        if sample_size is None and hasattr(X, 'shape'):
+            available_mem_mb = optimizer.system_info.get('available_memory_gb', 4) * 1024
+            n_features = X.shape[1] if len(X.shape) > 1 else 1
+            # Heuristic: estimate memory needed per sample based on features
+            safe_sample_size = min(len(X), int(available_mem_mb / (n_features * 2.0)))
+            sample_size = max(100, min(1000, safe_sample_size))
+            if verbose > 0:
+                print(f"Auto-selected sample size: {sample_size} based on available memory")
+    
+    try:
+        # Handle feature names
+        if hasattr(X, 'columns'):
+            feature_names = X.columns.tolist()
+        else:
+            feature_names = [f'feature_{i}' for i in range(X.shape[1])]
+        
+        # Sample data if requested (to reduce computation time)
+        if sample_size is not None and sample_size < len(X):
+            if hasattr(X, 'sample'):
+                X_sample = X.sample(sample_size, random_state=42)
+            else:
+                indices = np.random.RandomState(42).choice(len(X), sample_size, replace=False)
+                X_sample = X[indices]
+            if verbose > 0:
+                print(f"Using {sample_size} samples for SHAP calculation (reduced from {len(X)})")
+        else:
+            X_sample = X
+            if verbose > 0:
+                print(f"Using all {len(X_sample)} samples for SHAP calculation")

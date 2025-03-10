@@ -1,39 +1,51 @@
-"""
-Models - Training functions for various gradient boosting models with hyperparameter optimization
-"""
-
-# Import necessary libraries
-import numpy as np
-import pandas as pd
-from sklearn.metrics import roc_auc_score
-from hyperopt import hp, fmin, tpe, STATUS_OK, Trials
-from hyperopt.pyll import scope
-
-# Optional imports with error handling
-try:
-    from sklearn.ensemble import RandomForestClassifier
-except ImportError:
-    RandomForestClassifier = None
-
-try:
-    import xgboost as xgb
-except ImportError:
-    xgb = None
-
-try:
-    import lightgbm as lgb
-except ImportError:
-    lgb = None
-
-try:
-    import catboost as cb
-except ImportError:
-    cb = None
-
-
-def train_random_forest(X_train, y_train, X_test, y_test, hyperopt_space=None, max_evals=50, 
-                      handle_imbalance=False, class_weight=None, random_state=42, optimizer=None):
+def train_catboost(X_train, y_train, X_test, y_test, hyperopt_space=None, max_evals=50,
+                 handle_imbalance=False, class_weights=None, random_state=42, optimizer=None):
     """
+    Train a CatBoost classifier with hyperparameter optimization using hyperopt.
+    
+    Parameters:
+    -----------
+    X_train : pandas.DataFrame or numpy.ndarray
+        Training features
+    y_train : pandas.Series or numpy.ndarray
+        Training labels
+    X_test : pandas.DataFrame or numpy.ndarray
+        Test features
+    y_test : pandas.Series or numpy.ndarray
+        Test labels
+    hyperopt_space : dict, optional
+        Dictionary with hyperopt search space. If None, default space is used.
+    max_evals : int, default=50
+        Number of hyperopt evaluations
+    handle_imbalance : bool, default=False
+        If True, use class weights or auto_class_weights to handle imbalanced classes
+    class_weights : list or dict or 'balanced', optional
+        Custom class weights to use. If None and handle_imbalance is True, 'auto' is used
+    random_state : int, default=42
+        Random seed for reproducibility
+    optimizer : SystemOptimizer, optional
+        System optimizer instance for multicore optimization
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing best model, best parameters, and training history
+    """
+    if cb is None:
+        raise ImportError("CatBoost is required for CatBoost training. Install with pip install catboost")
+    
+    # Default hyperopt search space if none provided
+    if hyperopt_space is None:
+        hyperopt_space = {
+            'learning_rate': hp.loguniform('learning_rate', np.log(0.01), np.log(0.3)),
+            'iterations': scope.int(hp.quniform('iterations', 50, 500, 10)),
+            'depth': scope.int(hp.quniform('depth', 3, 10, 1)),
+            'l2_leaf_reg': hp.loguniform('l2_leaf_reg', np.log(1), np.log(100)),
+            'border_count': scope.int(hp.quniform('border_count', 32, 255, 1)),
+            'subsample': hp.uniform('subsample', 0.5, 1.0),
+            'random_strength': hp.loguniform('random_strength', np.log(1e-9), np.log(10)),
+            'bagging_temperature': hp.uniform('bagging_temperature', 0, 1)
+        }
     
     # Get optimized parameters if optimizer is provided
     thread_count = -1  # Default to use all cores
@@ -132,7 +144,63 @@ def train_random_forest(X_train, y_train, X_test, y_test, hyperopt_space=None, m
         'best_score': auc,
         'trials': trials,
         'algorithm': 'CatBoost'
-    }
+    }    
+    # Train final model with best parameters
+    best_model = lgb.LGBMClassifier(
+        **best_params,
+        random_state=random_state,
+        n_jobs=n_jobs,
+        verbose=verbose
+    )
+    best_model.fit(X_train, y_train)
+    
+    # Evaluate best model
+    y_pred_proba = best_model.predict_proba(X_test)[:, 1]
+    auc = roc_auc_score(y_test, y_pred_proba)
+    
+    # Return results
+    return {
+        'model': best_model,
+        'best_params': best_params,
+        'best_score': auc,
+        'trials': trials,
+        'algorithm': 'LightGBM'
+    }"""
+Models - Training functions for various gradient boosting models with hyperparameter optimization
+"""
+
+# Import necessary libraries
+import numpy as np
+import pandas as pd
+from sklearn.metrics import roc_auc_score
+from hyperopt import hp, fmin, tpe, STATUS_OK, Trials
+from hyperopt.pyll import scope
+
+# Optional imports with error handling
+try:
+    from sklearn.ensemble import RandomForestClassifier
+except ImportError:
+    RandomForestClassifier = None
+
+try:
+    import xgboost as xgb
+except ImportError:
+    xgb = None
+
+try:
+    import lightgbm as lgb
+except ImportError:
+    lgb = None
+
+try:
+    import catboost as cb
+except ImportError:
+    cb = None
+
+
+def train_random_forest(X_train, y_train, X_test, y_test, hyperopt_space=None, max_evals=50, 
+                      handle_imbalance=False, class_weight=None, random_state=42, optimizer=None):
+    """
     Train a Random Forest classifier with hyperparameter optimization using hyperopt.
     
     Parameters:
@@ -555,74 +623,3 @@ def train_lightgbm(X_train, y_train, X_test, y_test, hyperopt_space=None, max_ev
             best_params['class_weight'] = class_weight
         else:
             best_params['is_unbalance'] = True
-    
-    # Train final model with best parameters
-    best_model = lgb.LGBMClassifier(
-        **best_params,
-        random_state=random_state,
-        n_jobs=n_jobs,
-        verbose=verbose
-    )
-    best_model.fit(X_train, y_train)
-    
-    # Evaluate best model
-    y_pred_proba = best_model.predict_proba(X_test)[:, 1]
-    auc = roc_auc_score(y_test, y_pred_proba)
-    
-    # Return results
-    return {
-        'model': best_model,
-        'best_params': best_params,
-        'best_score': auc,
-        'trials': trials,
-        'algorithm': 'LightGBM'
-    }
-
-
-def train_catboost(X_train, y_train, X_test, y_test, hyperopt_space=None, max_evals=50,
-                 handle_imbalance=False, class_weights=None, random_state=42, optimizer=None):
-    """
-    Train a CatBoost classifier with hyperparameter optimization using hyperopt.
-    
-    Parameters:
-    -----------
-    X_train : pandas.DataFrame or numpy.ndarray
-        Training features
-    y_train : pandas.Series or numpy.ndarray
-        Training labels
-    X_test : pandas.DataFrame or numpy.ndarray
-        Test features
-    y_test : pandas.Series or numpy.ndarray
-        Test labels
-    hyperopt_space : dict, optional
-        Dictionary with hyperopt search space. If None, default space is used.
-    max_evals : int, default=50
-        Number of hyperopt evaluations
-    handle_imbalance : bool, default=False
-        If True, use class weights or auto_class_weights to handle imbalanced classes
-    class_weights : list or dict or 'balanced', optional
-        Custom class weights to use. If None and handle_imbalance is True, 'auto' is used
-    random_state : int, default=42
-        Random seed for reproducibility
-    optimizer : SystemOptimizer, optional
-        System optimizer instance for multicore optimization
-        
-    Returns:
-    --------
-    dict
-        Dictionary containing best model, best parameters, and training history
-    """
-    if cb is None:
-        raise ImportError("CatBoost is required for CatBoost training. Install with pip install catboost")
-    
-    # Default hyperopt search space if none provided
-    if hyperopt_space is None:
-        hyperopt_space = {
-            'learning_rate': hp.loguniform('learning_rate', np.log(0.01), np.log(0.3)),
-            'iterations': scope.int(hp.quniform('iterations', 50, 500, 10)),
-            'depth': scope.int(hp.quniform('depth', 3, 10, 1)),
-            'l2_leaf_reg': hp.loguniform('l2_leaf_reg', np.log(1), np.log(100)),
-            'border_count': scope.int(hp.quniform('border_count', 32, 255, 1)),
-            'subsample': hp.uniform('subsample', 0.5, 1.0),
-            'random_strength': hp.loguniform('random_strength', np.log(1e-9), np.log(10)),
-            'bagging_temperature': hp.uniform('bagging_temperature', 0, 1)

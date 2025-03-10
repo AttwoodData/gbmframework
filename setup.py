@@ -3,7 +3,7 @@ import os
 import re
 
 # Read version without importing the package
-with open('gbmframework/__init__.py', 'r') as f:
+with open('src/gbmframework/__init__.py', 'r') as f:
     version_match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]", f.read(), re.M)
     if version_match:
         version = version_match.group(1)
@@ -13,7 +13,8 @@ with open('gbmframework/__init__.py', 'r') as f:
 setup(
     name="gbmframework",
     version=version,
-    packages=find_packages(),
+    package_dir={"": "src"},
+    packages=find_packages(where="src"),
     install_requires=[
         "numpy",
         "pandas",
