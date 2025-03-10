@@ -1,5 +1,5 @@
 """
-Enhanced System Optimizer with improved hardware detection and adaptive threading
+Enhanced System Optimizer with hardware-aware thread allocation
 """
 
 class SystemOptimizer:
@@ -122,18 +122,12 @@ class SystemOptimizer:
                 
                 system_info['resources_detected'] = True
                 
-                if self.verbose:
-                    print(f"DEBUG: Detected {system_info['physical_cores']} physical cores and {system_info['available_memory_gb']:.1f}GB available memory")
-                
             except ImportError:
                 # Fallback to multiprocessing if psutil not available
                 system_info['logical_cores'] = multiprocessing.cpu_count()
                 system_info['physical_cores'] = max(1, int(system_info['logical_cores'] * 0.75))
                 system_info['available_memory_gb'] = 8.0  # Conservative assumption
                 system_info['total_memory_gb'] = 16.0     # Conservative assumption
-                
-                if self.verbose:
-                    print("DEBUG: Using multiprocessing fallback for core detection")
             
             # Try to get more detailed CPU info
             try:
@@ -179,9 +173,6 @@ class SystemOptimizer:
         # Calculate optimal thread counts based on resources
         if self.force_threads is not None:
             # Use forced thread count if specified
-            if self.verbose:
-                print(f"DEBUG: Using forced thread count: {self.force_threads}")
-            
             threads = self.force_threads
             system_info['sklearn_threads'] = threads
             system_info['training_threads'] = threads
@@ -192,27 +183,14 @@ class SystemOptimizer:
             # If using adaptive mode, calculate threads based on multiple factors
             if self.adaptive:
                 threads = self._calculate_adaptive_threads(system_info)
-                if self.verbose:
-                    print(f"DEBUG: Adaptive thread calculation produced {threads} threads")
             else:
-                # Traditional memory-based scaling factor with more detailed debugging
+                # Traditional memory-based scaling factor
                 mem_scale = min(1.0, system_info['available_memory_gb'] / 16.0)
-                raw_mem_scale = mem_scale
                 mem_scale = max(0.25, mem_scale * self.memory_safety)
-                
-                if self.verbose:
-                    print(f"DEBUG: Memory scaling calculation:")
-                    print(f"  - Raw mem_scale = min(1.0, {system_info['available_memory_gb']:.1f}/16.0) = {raw_mem_scale:.2f}")
-                    print(f"  - Adjusted mem_scale = max(0.25, {raw_mem_scale:.2f} * {self.memory_safety}) = {mem_scale:.2f}")
                 
                 # Calculate thread counts with minimum enforced
                 raw_threads = int(system_info['physical_cores'] * mem_scale)
                 threads = max(self.min_threads, raw_threads)
-                
-                if self.verbose:
-                    print(f"DEBUG: Thread calculation:")
-                    print(f"  - Raw threads = {system_info['physical_cores']} * {mem_scale:.2f} = {raw_threads}")
-                    print(f"  - Final threads = max({self.min_threads}, {raw_threads}) = {threads}")
             
             system_info['sklearn_threads'] = threads
             system_info['training_threads'] = threads
@@ -308,19 +286,6 @@ class SystemOptimizer:
         # Ensure we stay within reasonable bounds
         threads = max(self.min_threads, min(physical_cores, raw_threads))
         
-        if self.verbose:
-            print(f"DEBUG: Adaptive thread calculation details:")
-            print(f"  - Memory factor: {memory_factor:.2f} (using {memory_threshold:.1f}GB threshold)")
-            print(f"  - Memory % factor: {percent_factor:.2f} (based on {memory_percent:.1f}% available)")
-            print(f"  - Combined memory factor: {combined_memory_factor:.2f}")
-            print(f"  - Adjusted memory factor: {memory_factor_adjusted:.2f} (with safety={self.memory_safety})")
-            print(f"  - Thread factor: {thread_factor:.2f} (ratio of physical to logical cores)")
-            print(f"  - Architecture factor: {arch_factor:.2f} (based on CPU model)")
-            print(f"  - Aggressiveness multiplier: {self.thread_aggressiveness:.2f}")
-            print(f"  - Combined factor: {combined_factor:.2f}")
-            print(f"  - Raw thread calculation: {physical_cores} cores * {combined_factor:.2f} = {raw_threads}")
-            print(f"  - Final thread count: {threads}")
-        
         return threads
     
     def _configure_global_settings(self):
@@ -333,12 +298,6 @@ class SystemOptimizer:
             os.environ["MKL_NUM_THREADS"] = str(self.system_info['training_threads'])
             os.environ["OPENBLAS_NUM_THREADS"] = str(self.system_info['training_threads'])
             
-            if self.verbose:
-                print(f"DEBUG: Set environment variables:")
-                print(f"  - OMP_NUM_THREADS = {os.environ.get('OMP_NUM_THREADS')}")
-                print(f"  - MKL_NUM_THREADS = {os.environ.get('MKL_NUM_THREADS')}")
-                print(f"  - OPENBLAS_NUM_THREADS = {os.environ.get('OPENBLAS_NUM_THREADS')}")
-            
             # Configure library-specific threading
             self._configure_libraries()
     
@@ -348,8 +307,6 @@ class SystemOptimizer:
             # Configure XGBoost globally if available
             import xgboost as xgb
             xgb.config_context(verbosity=0, nthread=self.system_info['training_threads'])
-            if self.verbose:
-                print(f"DEBUG: Configured XGBoost with {self.system_info['training_threads']} threads")
         except ImportError:
             pass
         
@@ -359,8 +316,6 @@ class SystemOptimizer:
             try:
                 # Try the newer API
                 lgb.set_verbosity(0)
-                if self.verbose:
-                    print("DEBUG: Configured LightGBM verbosity")
             except AttributeError:
                 # Older versions might not have set_verbosity
                 pass
@@ -375,10 +330,6 @@ class SystemOptimizer:
                 # For MKL-based numpy
                 from numpy import __config__
                 np_info = str(__config__.show())
-                if 'mkl' in np_info.lower():
-                    # Already set via MKL_NUM_THREADS environment variable
-                    if self.verbose:
-                        print(f"DEBUG: NumPy using MKL with {self.system_info['training_threads']} threads")
             except:
                 pass
         except ImportError:
@@ -389,8 +340,6 @@ class SystemOptimizer:
             from sklearn.utils import parallel_backend
             # Note: This doesn't actually set anything globally, 
             # but we check if it's available for future use
-            if self.verbose:
-                print("DEBUG: scikit-learn parallel_backend is available")
         except ImportError:
             pass
     
@@ -405,10 +354,6 @@ class SystemOptimizer:
         print(f"  - Logical cores: {self.system_info['logical_cores']}")
         if 'cpu_info' in self.system_info and 'model' in self.system_info['cpu_info']:
             print(f"  - CPU model: {self.system_info['cpu_info']['model']}")
-        if 'cpu_info' in self.system_info and 'current_freq_mhz' in self.system_info['cpu_info']:
-            print(f"  - CPU frequency: {self.system_info['cpu_info']['current_freq_mhz']:.0f} MHz")
-        if 'cpu_load_percent' in self.system_info:
-            print(f"  - Current CPU load: {self.system_info['cpu_load_percent']:.1f}%")
         
         print(f"Memory Information:")
         if 'total_memory_gb' in self.system_info:
