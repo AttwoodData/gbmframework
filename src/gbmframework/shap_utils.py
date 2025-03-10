@@ -1,3 +1,318 @@
+import time
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+
+def generate_shap_values(model, X, algorithm_type, X_train=None, sample_size=None, 
+                       background_size=100, verbose=1, optimizer=None):
+    """
+    Generate SHAP values for a trained gradient boosted tree model.
+    
+    Parameters:
+    -----------
+    model : model object
+        Trained model (XGBoost, LightGBM, CatBoost, or RandomForest)
+    X : pandas.DataFrame or numpy.ndarray
+        Feature dataset for SHAP calculation (typically X_test or a sample)
+    algorithm_type : str
+        Type of GBT algorithm: "xgboost", "lightgbm", "catboost", or "randomforest"
+    X_train : pandas.DataFrame or numpy.ndarray, optional
+        Training data, required for CatBoost SHAP calculation
+    sample_size : int, optional
+        Number of samples to use for SHAP calculation (to reduce computation time)
+    background_size : int, default=100
+        Number of samples to use for background distribution (for non-tree models)
+    verbose : int, default=1
+        Verbosity level (0: silent, 1: normal, 2: detailed)
+    optimizer : SystemOptimizer, optional
+        System optimizer instance for multicore optimization
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing SHAP values, explainer, and feature importance
+    """
+    try:
+        import shap
+        import time
+        import numpy as np
+        import pandas as pd
+        import os
+    except ImportError:
+        print("SHAP not installed. Install using: pip install shap")
+        return None
+    
+    start_time = time.time()
+    
+    # Apply thread optimization if optimizer is provided
+    old_threads = None
+    if optimizer is not None and hasattr(optimizer, 'system_info'):
+        old_threads = os.environ.get("OMP_NUM_THREADS", None)
+        shap_threads = optimizer.system_info.get('shap_threads', None)
+        if shap_threads is not None:
+            os.environ["OMP_NUM_THREADS"] = str(shap_threads)
+            if verbose > 0:
+                print(f"SHAP calculation will use {shap_threads} threads")
+        
+        # Determine optimal sample size based on memory if not provided
+        if sample_size is None and hasattr(X, 'shape'):
+            available_mem_mb = optimizer.system_info.get('available_memory_gb', 4) * 1024
+            n_features = X.shape[1] if len(X.shape) > 1 else 1
+            # Heuristic: estimate memory needed per sample based on features
+            safe_sample_size = min(len(X), int(available_mem_mb / (n_features * 2.0)))
+            sample_size = max(100, min(1000, safe_sample_size))
+            if verbose > 0:
+                print(f"Auto-selected sample size: {sample_size} based on available memory")
+    
+    try:
+        # Handle feature names
+        if hasattr(X, 'columns'):
+            feature_names = X.columns.tolist()
+        else:
+            feature_names = [f'feature_{i}' for i in range(X.shape[1])]
+        
+        # Sample data if requested (to reduce computation time)
+        if sample_size is not None and sample_size < len(X):
+            if hasattr(X, 'sample'):
+                X_sample = X.sample(sample_size, random_state=42)
+            else:
+                indices = np.random.RandomState(42).choice(len(X), sample_size, replace=False)
+                X_sample = X[indices]
+            if verbose > 0:
+                print(f"Using {sample_size} samples for SHAP calculation (reduced from {len(X)})")
+        else:
+            X_sample = X
+            if verbose > 0:
+                print(f"Using all {len(X_sample)} samples for SHAP calculation")
+        
+        # Special handling for CatBoost using native SHAP calculation
+        if algorithm_type.lower() == "catboost":
+            if X_train is None:
+                raise ValueError("CatBoost requires training data (X_train) for reliable SHAP calculation. "
+                                "Please provide X_train when using CatBoost.")
+            
+            if verbose > 0:
+                print("Using CatBoost's native SHAP calculation...")
+            
+            try:
+                # Import catboost for Pool object
+                import catboost as cb
+                
+                # Convert training data to CatBoost Pool format
+                if isinstance(X_train, pd.DataFrame):
+                    X_train_values = X_train.values
+                    train_pool = cb.Pool(X_train_values, label=None, feature_names=list(X_train.columns))
+                else:
+                    train_pool = cb.Pool(X_train, label=None, feature_names=feature_names)
+                
+                # Sample test data
+                if isinstance(X_sample, pd.DataFrame):
+                    X_sample_values = X_sample.values
+                else:
+                    X_sample_values = X_sample
+                    
+                # Get SHAP values for test data using model.get_feature_importance()
+                # For CatBoost, we're actually calculating SHAP values for the TRAINING data
+                # but we'll only use the number of samples that matches our test data size
+                shap_values = model.get_feature_importance(
+                    data=train_pool,
+                    type='ShapValues'
+                )
+                
+                # CatBoost adds a bias term as the last column, so remove it
+                shap_values = shap_values[:, :-1]
+                
+                # Ensure we only use as many rows as we have in X_sample
+                sample_count = min(len(shap_values), len(X_sample_values))
+                shap_values = shap_values[:sample_count]
+                
+                # Calculate mean absolute SHAP values for feature ranking
+                mean_abs_shap = np.abs(shap_values).mean(axis=0)
+                
+                # If dimensions don't match, fall back to using model's feature_importances_
+                if len(mean_abs_shap) != len(feature_names):
+                    print(f"Warning: SHAP values shape {mean_abs_shap.shape} doesn't match feature names length {len(feature_names)}")
+                    print("Falling back to model's feature_importances_")
+                    
+                    if hasattr(model, 'feature_importances_'):
+                        mean_abs_shap = model.feature_importances_
+                        # Create dummy SHAP values that align with feature importances
+                        shaped_values = np.zeros((len(X_sample_values), len(feature_names)))
+                        for i in range(len(X_sample_values)):
+                            shaped_values[i] = mean_abs_shap
+                        shap_values = shaped_values
+                
+                # Create feature importance DataFrame
+                feature_importance = pd.DataFrame({
+                    'feature': feature_names,
+                    'importance': mean_abs_shap
+                }).sort_values('importance', ascending=False)
+                
+                # Calculate elapsed time
+                elapsed_time = time.time() - start_time
+                if verbose > 0:
+                    print(f"SHAP calculation completed in {elapsed_time:.2f} seconds")
+                
+                # Create result dictionary
+                result = {
+                    'shap_values': shap_values,
+                    'explainer': None,
+                    'feature_importance': feature_importance,
+                    'sample_data': X_sample,
+                    'feature_names': feature_names,
+                    'computation_time': elapsed_time
+                }
+                
+                # Restore original thread settings if they were changed
+                if old_threads is not None:
+                    os.environ["OMP_NUM_THREADS"] = old_threads
+                
+                return result
+                
+            except Exception as e:
+                print(f"Error calculating CatBoost SHAP values: {str(e)}")
+                print("Falling back to feature importance instead of SHAP values")
+                
+                # Use feature_importances_ attribute instead
+                if hasattr(model, 'feature_importances_'):
+                    importance = model.feature_importances_
+                    
+                    # Create dummy SHAP values based on feature importance
+                    # This won't have the sample-specific variation of real SHAP values
+                    # but will at least show the overall feature ranking correctly
+                    shap_values = np.zeros((len(X_sample), len(importance)))
+                    for i in range(len(X_sample)):
+                        # Add slight random variation to make plots more interesting
+                        shap_values[i] = importance * (0.95 + 0.1 * np.random.random(len(importance)))
+                    
+                    # Create feature importance DataFrame
+                    feature_importance = pd.DataFrame({
+                        'feature': feature_names,
+                        'importance': importance
+                    }).sort_values('importance', ascending=False)
+                    
+                    # Calculate elapsed time
+                    elapsed_time = time.time() - start_time
+                    if verbose > 0:
+                        print(f"Feature importance calculation completed in {elapsed_time:.2f} seconds")
+                    
+                    # Create result dictionary
+                    result = {
+                        'shap_values': shap_values,
+                        'explainer': None,
+                        'feature_importance': feature_importance,
+                        'sample_data': X_sample,
+                        'feature_names': feature_names,
+                        'computation_time': elapsed_time
+                    }
+                    
+                    # Restore original thread settings if they were changed
+                    if old_threads is not None:
+                        os.environ["OMP_NUM_THREADS"] = old_threads
+                    
+                    return result
+        
+        # For other algorithms, use SHAP's built-in explainers
+        try:
+            if algorithm_type.lower() == "xgboost":
+                if verbose > 0:
+                    print("Creating XGBoost TreeExplainer...")
+                explainer = shap.TreeExplainer(model)
+            
+            elif algorithm_type.lower() == "lightgbm":
+                if verbose > 0:
+                    print("Creating LightGBM TreeExplainer...")
+                # Try with model.booster_ first (sklearn-style LightGBM)
+                try:
+                    explainer = shap.TreeExplainer(model.booster_)
+                except (AttributeError, TypeError):
+                    # Fall back to direct model
+                    explainer = shap.TreeExplainer(model)
+            
+            elif algorithm_type.lower() == "randomforest":
+                if verbose > 0:
+                    print("Creating RandomForest TreeExplainer...")
+                explainer = shap.TreeExplainer(model)
+                    
+            else:
+                # Fallback to KernelExplainer for other model types
+                if verbose > 0:
+                    print(f"Model type {algorithm_type} not recognized, falling back to KernelExplainer...")
+                if background_size < len(X_sample):
+                    background = shap.sample(X_sample, background_size)
+                else:
+                    background = X_sample
+                explainer = shap.KernelExplainer(model.predict_proba, background)
+                
+        except Exception as e:
+            print(f"Error creating explainer: {str(e)}")
+            raise ValueError(f"Failed to create SHAP explainer for {algorithm_type}: {str(e)}")
+        
+        # Calculate SHAP values
+        try:
+            if verbose > 0:
+                print("Calculating SHAP values...")
+            
+            try:
+                # Try with verbose parameter if available
+                shap_values = explainer.shap_values(X_sample, verbose=verbose > 1)
+            except TypeError:
+                # Fallback if verbose is not supported
+                shap_values = explainer.shap_values(X_sample)
+        except Exception as e:
+            print(f"Error calculating SHAP values: {str(e)}")
+            raise ValueError(f"Failed to calculate SHAP values: {str(e)}")
+        
+        # Calculate mean absolute SHAP values for feature ranking
+        if isinstance(shap_values, list):
+            # For multi-class models or some binary models that return a list of arrays
+            if len(shap_values) > 1:
+                # For binary classification, typically index 1 is the positive class
+                shap_values_for_importance = shap_values[1]
+            else:
+                shap_values_for_importance = shap_values[0]
+        else:
+            shap_values_for_importance = shap_values
+        
+        mean_abs_shap = np.abs(shap_values_for_importance).mean(axis=0)
+        feature_importance = pd.DataFrame({
+            'feature': feature_names,
+            'importance': mean_abs_shap
+        }).sort_values('importance', ascending=False)
+        
+        # Calculate elapsed time
+        elapsed_time = time.time() - start_time
+        if verbose > 0:
+            print(f"SHAP calculation completed in {elapsed_time:.2f} seconds")
+        
+        # Create result dictionary
+        result = {
+            'shap_values': shap_values,
+            'explainer': explainer,
+            'feature_importance': feature_importance,
+            'sample_data': X_sample,
+            'feature_names': feature_names,
+            'computation_time': elapsed_time
+        }
+        
+        # Restore original thread settings if they were changed
+        if old_threads is not None:
+            os.environ["OMP_NUM_THREADS"] = old_threads
+        
+        return result
+    
+    except Exception as e:
+        # Make sure to restore thread settings on exception
+        if old_threads is not None:
+            os.environ["OMP_NUM_THREADS"] = old_threads
+        
+        # Re-raise the exception
+        raise e
+
+
 def visualize_shap(shap_result, plot_type='summary', class_index=1, max_display=20, 
                  plot_size=(12, 8), plot_title=None, output_file=None, optimizer=None):
     """
@@ -34,8 +349,11 @@ def visualize_shap(shap_result, plot_type='summary', class_index=1, max_display=
     """
     try:
         import shap
+        import matplotlib.pyplot as plt
+        import numpy as np
     except ImportError:
-        raise ImportError("SHAP not installed. Install using: pip install shap")
+        print("SHAP or matplotlib not installed. Install using: pip install shap matplotlib")
+        return None
     
     # Apply optimization settings if available
     if optimizer is not None and hasattr(optimizer, 'system_info'):
@@ -261,312 +579,4 @@ def visualize_shap(shap_result, plot_type='summary', class_index=1, max_display=
         print(f"Plot saved to {output_file}")
     
     # Return the figure
-    return plt.gcf()        
-        # For other algorithms, use SHAP's built-in explainers
-        try:
-            if algorithm_type.lower() == "xgboost":
-                if verbose > 0:
-                    print("Creating XGBoost TreeExplainer...")
-                explainer = shap.TreeExplainer(model)
-            
-            elif algorithm_type.lower() == "lightgbm":
-                if verbose > 0:
-                    print("Creating LightGBM TreeExplainer...")
-                # Try with model.booster_ first (sklearn-style LightGBM)
-                try:
-                    explainer = shap.TreeExplainer(model.booster_)
-                except (AttributeError, TypeError):
-                    # Fall back to direct model
-                    explainer = shap.TreeExplainer(model)
-            
-            elif algorithm_type.lower() == "randomforest":
-                if verbose > 0:
-                    print("Creating RandomForest TreeExplainer...")
-                explainer = shap.TreeExplainer(model)
-                    
-            else:
-                # Fallback to KernelExplainer for other model types
-                if verbose > 0:
-                    print(f"Model type {algorithm_type} not recognized, falling back to KernelExplainer...")
-                if background_size < len(X_sample):
-                    background = shap.sample(X_sample, background_size)
-                else:
-                    background = X_sample
-                explainer = shap.KernelExplainer(model.predict_proba, background)
-                
-        except Exception as e:
-            print(f"Error creating explainer: {str(e)}")
-            raise ValueError(f"Failed to create SHAP explainer for {algorithm_type}: {str(e)}")
-        
-        # Calculate SHAP values
-        try:
-            if verbose > 0:
-                print("Calculating SHAP values...")
-            
-            try:
-                # Try with verbose parameter if available
-                shap_values = explainer.shap_values(X_sample, verbose=verbose > 1)
-            except TypeError:
-                # Fallback if verbose is not supported
-                shap_values = explainer.shap_values(X_sample)
-        except Exception as e:
-            print(f"Error calculating SHAP values: {str(e)}")
-            raise ValueError(f"Failed to calculate SHAP values: {str(e)}")
-        
-        # Calculate mean absolute SHAP values for feature ranking
-        if isinstance(shap_values, list):
-            # For multi-class models or some binary models that return a list of arrays
-            if len(shap_values) > 1:
-                # For binary classification, typically index 1 is the positive class
-                shap_values_for_importance = shap_values[1]
-            else:
-                shap_values_for_importance = shap_values[0]
-        else:
-            shap_values_for_importance = shap_values
-        
-        mean_abs_shap = np.abs(shap_values_for_importance).mean(axis=0)
-        feature_importance = pd.DataFrame({
-            'feature': feature_names,
-            'importance': mean_abs_shap
-        }).sort_values('importance', ascending=False)
-        
-        # Calculate elapsed time
-        elapsed_time = time.time() - start_time
-        if verbose > 0:
-            print(f"SHAP calculation completed in {elapsed_time:.2f} seconds")
-        
-        # Create result dictionary
-        result = {
-            'shap_values': shap_values,
-            'explainer': explainer,
-            'feature_importance': feature_importance,
-            'sample_data': X_sample,
-            'feature_names': feature_names,
-            'computation_time': elapsed_time
-        }
-        
-        # Restore original thread settings if they were changed
-        if old_threads is not None:
-            os.environ["OMP_NUM_THREADS"] = old_threads
-        
-        return result
-    
-    except Exception as e:
-        # Make sure to restore thread settings on exception
-        if old_threads is not None:
-            os.environ["OMP_NUM_THREADS"] = old_threads
-        
-        # Re-raise the exception
-        raise e        
-        # Special handling for CatBoost using native SHAP calculation
-        if algorithm_type.lower() == "catboost":
-            if X_train is None:
-                raise ValueError("CatBoost requires training data (X_train) for reliable SHAP calculation. "
-                                "Please provide X_train when using CatBoost.")
-            
-            if verbose > 0:
-                print("Using CatBoost's native SHAP calculation...")
-            
-            try:
-                # Import catboost for Pool object
-                import catboost as cb
-                
-                # Convert training data to CatBoost Pool format
-                if isinstance(X_train, pd.DataFrame):
-                    X_train_values = X_train.values
-                    train_pool = cb.Pool(X_train_values, label=None, feature_names=list(X_train.columns))
-                else:
-                    train_pool = cb.Pool(X_train, label=None, feature_names=feature_names)
-                
-                # Sample test data
-                if isinstance(X_sample, pd.DataFrame):
-                    X_sample_values = X_sample.values
-                else:
-                    X_sample_values = X_sample
-                    
-                # Get SHAP values for test data using model.get_feature_importance()
-                # For CatBoost, we're actually calculating SHAP values for the TRAINING data
-                # but we'll only use the number of samples that matches our test data size
-                shap_values = model.get_feature_importance(
-                    data=train_pool,
-                    type='ShapValues'
-                )
-                
-                # CatBoost adds a bias term as the last column, so remove it
-                shap_values = shap_values[:, :-1]
-                
-                # Ensure we only use as many rows as we have in X_sample
-                sample_count = min(len(shap_values), len(X_sample_values))
-                shap_values = shap_values[:sample_count]
-                
-                # Calculate mean absolute SHAP values for feature ranking
-                mean_abs_shap = np.abs(shap_values).mean(axis=0)
-                
-                # If dimensions don't match, fall back to using model's feature_importances_
-                if len(mean_abs_shap) != len(feature_names):
-                    print(f"Warning: SHAP values shape {mean_abs_shap.shape} doesn't match feature names length {len(feature_names)}")
-                    print("Falling back to model's feature_importances_")
-                    
-                    if hasattr(model, 'feature_importances_'):
-                        mean_abs_shap = model.feature_importances_
-                        # Create dummy SHAP values that align with feature importances
-                        shaped_values = np.zeros((len(X_sample_values), len(feature_names)))
-                        for i in range(len(X_sample_values)):
-                            shaped_values[i] = mean_abs_shap
-                        shap_values = shaped_values
-                
-                # Create feature importance DataFrame
-                feature_importance = pd.DataFrame({
-                    'feature': feature_names,
-                    'importance': mean_abs_shap
-                }).sort_values('importance', ascending=False)
-                
-                # Calculate elapsed time
-                elapsed_time = time.time() - start_time
-                if verbose > 0:
-                    print(f"SHAP calculation completed in {elapsed_time:.2f} seconds")
-                
-                # Create result dictionary
-                result = {
-                    'shap_values': shap_values,
-                    'explainer': None,
-                    'feature_importance': feature_importance,
-                    'sample_data': X_sample,
-                    'feature_names': feature_names,
-                    'computation_time': elapsed_time
-                }
-                
-                # Restore original thread settings if they were changed
-                if old_threads is not None:
-                    os.environ["OMP_NUM_THREADS"] = old_threads
-                
-                return result
-                
-            except Exception as e:
-                print(f"Error calculating CatBoost SHAP values: {str(e)}")
-                print("Falling back to feature importance instead of SHAP values")
-                
-                # Use feature_importances_ attribute instead
-                if hasattr(model, 'feature_importances_'):
-                    importance = model.feature_importances_
-                    
-                    # Create dummy SHAP values based on feature importance
-                    # This won't have the sample-specific variation of real SHAP values
-                    # but will at least show the overall feature ranking correctly
-                    shap_values = np.zeros((len(X_sample), len(importance)))
-                    for i in range(len(X_sample)):
-                        # Add slight random variation to make plots more interesting
-                        shap_values[i] = importance * (0.95 + 0.1 * np.random.random(len(importance)))
-                    
-                    # Create feature importance DataFrame
-                    feature_importance = pd.DataFrame({
-                        'feature': feature_names,
-                        'importance': importance
-                    }).sort_values('importance', ascending=False)
-                    
-                    # Calculate elapsed time
-                    elapsed_time = time.time() - start_time
-                    if verbose > 0:
-                        print(f"Feature importance calculation completed in {elapsed_time:.2f} seconds")
-                    
-                    # Create result dictionary
-                    result = {
-                        'shap_values': shap_values,
-                        'explainer': None,
-                        'feature_importance': feature_importance,
-                        'sample_data': X_sample,
-                        'feature_names': feature_names,
-                        'computation_time': elapsed_time
-                    }
-                    
-                    # Restore original thread settings if they were changed
-                    if old_threads is not None:
-                        os.environ["OMP_NUM_THREADS"] = old_threads
-                    
-                    return result"""
-SHAP Utilities - Functions for generating and visualizing SHAP values
-"""
-
-import time
-import os
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-
-
-def generate_shap_values(model, X, algorithm_type, X_train=None, sample_size=None, 
-                       background_size=100, verbose=1, optimizer=None):
-    """
-    Generate SHAP values for a trained gradient boosted tree model.
-    
-    Parameters:
-    -----------
-    model : model object
-        Trained model (XGBoost, LightGBM, CatBoost, or RandomForest)
-    X : pandas.DataFrame or numpy.ndarray
-        Feature dataset for SHAP calculation (typically X_test or a sample)
-    algorithm_type : str
-        Type of GBT algorithm: "xgboost", "lightgbm", "catboost", or "randomforest"
-    X_train : pandas.DataFrame or numpy.ndarray, optional
-        Training data, required for CatBoost SHAP calculation
-    sample_size : int, optional
-        Number of samples to use for SHAP calculation (to reduce computation time)
-    background_size : int, default=100
-        Number of samples to use for background distribution (for non-tree models)
-    verbose : int, default=1
-        Verbosity level (0: silent, 1: normal, 2: detailed)
-    optimizer : SystemOptimizer, optional
-        System optimizer instance for multicore optimization
-        
-    Returns:
-    --------
-    dict
-        Dictionary containing SHAP values, explainer, and feature importance
-    """
-    try:
-        import shap
-    except ImportError:
-        raise ImportError("SHAP not installed. Install using: pip install shap")
-    
-    start_time = time.time()
-    
-    # Apply thread optimization if optimizer is provided
-    old_threads = None
-    if optimizer is not None and hasattr(optimizer, 'system_info'):
-        old_threads = os.environ.get("OMP_NUM_THREADS", None)
-        shap_threads = optimizer.system_info.get('shap_threads', None)
-        if shap_threads is not None:
-            os.environ["OMP_NUM_THREADS"] = str(shap_threads)
-            if verbose > 0:
-                print(f"SHAP calculation will use {shap_threads} threads")
-        
-        # Determine optimal sample size based on memory if not provided
-        if sample_size is None and hasattr(X, 'shape'):
-            available_mem_mb = optimizer.system_info.get('available_memory_gb', 4) * 1024
-            n_features = X.shape[1] if len(X.shape) > 1 else 1
-            # Heuristic: estimate memory needed per sample based on features
-            safe_sample_size = min(len(X), int(available_mem_mb / (n_features * 2.0)))
-            sample_size = max(100, min(1000, safe_sample_size))
-            if verbose > 0:
-                print(f"Auto-selected sample size: {sample_size} based on available memory")
-    
-    try:
-        # Handle feature names
-        if hasattr(X, 'columns'):
-            feature_names = X.columns.tolist()
-        else:
-            feature_names = [f'feature_{i}' for i in range(X.shape[1])]
-        
-        # Sample data if requested (to reduce computation time)
-        if sample_size is not None and sample_size < len(X):
-            if hasattr(X, 'sample'):
-                X_sample = X.sample(sample_size, random_state=42)
-            else:
-                indices = np.random.RandomState(42).choice(len(X), sample_size, replace=False)
-                X_sample = X[indices]
-            if verbose > 0:
-                print(f"Using {sample_size} samples for SHAP calculation (reduced from {len(X)})")
-        else:
-            X_sample = X
-            if verbose > 0:
-                print(f"Using all {len(X_sample)} samples for SHAP calculation")
+    return plt.gcf()
