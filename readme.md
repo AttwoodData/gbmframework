@@ -81,14 +81,39 @@ The GBM Framework provides a consistent API across different gradient boosting i
 ```python
 from gbmframework.optimizer import SystemOptimizer
 
+# Basic usage
 optimizer = SystemOptimizer(
-    enable_parallel=True,  # Whether to enable parallel computation
-    memory_safety=0.8,     # Memory safety factor (0.0-1.0)
-    verbose=True           # Whether to print optimization information
+    enable_parallel=True,    # Whether to enable parallel computation
+    memory_safety=0.8,       # Memory safety factor (0.0-1.0)
+    verbose=True             # Whether to print optimization information
+)
+
+# Advanced hardware-aware usage
+optimizer = SystemOptimizer(
+    adaptive=True,              # Enable hardware-adaptive thread allocation
+    thread_aggressiveness=0.7,  # Control thread allocation aggressiveness (0.0-1.0)
+    verbose=True                # Print detailed hardware information
+)
+
+# Maximum performance (manual control)
+optimizer = SystemOptimizer(
+    force_threads=6,   # Specify exact number of threads to use
+    verbose=True       # Show optimization information
 )
 ```
 
-The `SystemOptimizer` automatically detects system resources and configures optimal thread counts and memory usage for training and SHAP calculations.
+The `SystemOptimizer` automatically detects system resources and configures optimal thread counts and memory usage for training and SHAP calculations. The enhanced version with `adaptive=True` provides more intelligent resource allocation based on detailed hardware information.
+
+### Hardware-Adaptive Optimization
+
+The `adaptive=True` mode enables sophisticated hardware-aware thread allocation that considers:
+
+- CPU model and architecture (Intel, AMD, Apple Silicon)
+- Physical vs. logical cores and hyperthreading
+- Available memory as both absolute amount and percentage of total
+- Memory-to-CPU ratio and system balance
+
+This allows the optimizer to make intelligent decisions about threading that are tailored to your specific hardware configuration, maximizing performance while preventing out-of-memory errors or excessive resource contention.
 
 ### Model Training Functions
 
@@ -193,7 +218,96 @@ Returns a dictionary containing:
 - `y_pred_proba`: Probability predictions
 - `figure`: Matplotlib figure with visualizations (if plot=True)
 
-### SHAP Analysis
+## Understanding SHAP Values for Model Interpretation
+
+SHAP (SHapley Additive exPlanations) values provide a powerful approach to model interpretation that overcomes many limitations of traditional feature importance metrics.
+
+### What Are SHAP Values?
+
+SHAP values, introduced by Lundberg and Lee in their 2017 paper "A Unified Approach to Interpreting Model Predictions" (NeurIPS, December 2017), are based on game theory's Shapley values, a method for assigning credit among multiple players in a cooperative game. In machine learning, SHAP values attribute the prediction outcome among features, calculating each feature's contribution to the difference between the actual prediction and the average prediction.
+
+### Key Benefits of SHAP Over Traditional Feature Importance Metrics
+
+#### 1. Consistency and Mathematical Foundation
+Unlike variable importance metrics like Gini impurity (used in tree-based models), SHAP values have a solid mathematical foundation with three important properties:
+- **Local accuracy**: SHAP values sum to the difference between the model prediction and average prediction
+- **Missingness**: Features with no marginal effect receive zero attribution
+- **Consistency**: If a model changes so that a feature's contribution increases, its SHAP value increases
+
+#### 2. Global and Local Explanations
+SHAP uniquely provides both:
+- **Global importance**: Overall impact of features across all predictions
+- **Local importance**: Impact of features on individual predictions
+
+#### 3. Directional Information
+Unlike Gini impurity or permutation importance, SHAP values indicate:
+- The **direction** of feature impact (positive or negative)
+- The **magnitude** of each feature's influence
+
+### Comparing SHAP to Gini Impurity and Entropy
+
+| Aspect | SHAP Values | Gini Impurity / Entropy |
+|--------|-------------|-------------------------|
+| **Foundation** | Game theory (Shapley values) | Information theory |
+| **Direction** | Shows positive/negative impact | Direction-agnostic (only magnitude) |
+| **Scope** | Both global and local explanations | Only global importance |
+| **Consistency** | Consistent across models | May be inconsistent across models |
+| **Computational Cost** | Higher (especially for non-tree models) | Lower |
+| **Interactions** | Accounts for feature interactions | May miss complex interactions |
+| **Interpretability** | Direct link to model output | Indirect (measures node impurity) |
+
+### Interpreting SHAP Values
+
+#### Proportional Interpretation
+Yes, SHAP values are proportional and have a direct mathematical interpretation:
+
+- A SHAP value of 2 is exactly twice as impactful as a SHAP value of 1
+- SHAP values are in the same units as the model output
+- For classification with logit output, SHAP values represent log-odds contributions
+
+#### Example Interpretation
+For a model predicting loan default probability:
+- Base value: 10% (average prediction across all samples)
+- SHAP values: Income = -5%, Credit score = -3%, Loan amount = +2%
+- Final prediction: 10% - 5% - 3% + 2% = 4%
+
+This means income reduced default probability by 5 percentage points, credit score reduced it by 3 points, and loan amount increased it by 2 points.
+
+### SHAP for Different Model Types
+
+SHAP provides different estimators optimized for various model classes:
+
+- **TreeExplainer**: Fast, exact algorithm for tree-based models (Random Forest, XGBoost, etc.)
+- **DeepExplainer**: For deep learning models
+- **KernelExplainer**: Model-agnostic but computationally expensive
+- **LinearExplainer**: For linear models with efficient implementation
+
+### Common SHAP Visualizations
+
+The GBM Framework provides several SHAP visualization types:
+
+1. **Summary Plot**: Shows features sorted by importance with distribution of SHAP values
+2. **Bar Plot**: Simple ranking of features by average absolute SHAP value
+3. **Beeswarm Plot**: Detailed view of how features impact individual predictions
+4. **Waterfall Plot**: Shows how features contribute to a single prediction
+5. **Dependence Plot**: Shows how a feature's SHAP values vary based on the feature's value
+
+### Practical Tips for Using SHAP
+
+1. **Start with summary plots** for a global overview of feature importance
+2. **Use waterfall plots** to understand specific predictions
+3. **Sample data** when working with large datasets to reduce computation time
+4. **Combine with domain knowledge** to validate if identified patterns make sense
+5. **Compare across models** to understand how different algorithms use features
+
+### Limitations of SHAP
+
+- **Computational complexity**: Calculating exact SHAP values can be expensive for non-tree models
+- **Feature independence assumption**: SHAP may not perfectly capture correlated features
+- **Interpretation challenges**: While mathematically sound, SHAP values can still be difficult to interpret for complex models
+- **Sampling approximation**: For large datasets, SHAP often uses sampling which introduces variance
+
+### SHAP Analysis in GBM Framework
 
 #### Generating SHAP Values
 
@@ -240,6 +354,14 @@ figure = visualize_shap(
 ```
 
 Returns a matplotlib figure object that can be further customized or displayed.
+
+### References for SHAP
+
+1. Lundberg, S. M., & Lee, S. I. (2017). A Unified Approach to Interpreting Model Predictions. In Advances in Neural Information Processing Systems 30 (NIPS 2017) (pp. 4765–4774).
+
+2. Lundberg, S. M., Erion, G., Chen, H., DeGrave, A., Prutkin, J. M., Nair, B., Katz, R., Himmelfarb, J., Bansal, N., & Lee, S. I. (2020). From local explanations to global understanding with explainable AI for trees. Nature Machine Intelligence, 2(1), 56-67. https://doi.org/10.1038/s42256-019-0138-9
+
+3. Molnar, C. (2022). Interpretable Machine Learning: A Guide for Making Black Box Models Explainable (2nd ed.). https://christophm.github.io/interpretable-ml-book/shap.html
 
 ## Comprehensive Example: Income Prediction
 
@@ -324,13 +446,18 @@ Testing data shape: (9769, 107)
 Class distribution in training: {0: 0.7612421, 1: 0.23875789}
 ```
 
-### Step 2: Initialize the System Optimizer
+### Step 2: Initialize the System Optimizer with Hardware Awareness
 
 ```python
 from gbmframework.optimizer import SystemOptimizer
 
-# Initialize system optimizer for efficient resource usage
-optimizer = SystemOptimizer(enable_parallel=True)
+# Initialize system optimizer with adaptive hardware awareness
+optimizer = SystemOptimizer(
+    enable_parallel=True,
+    adaptive=True,              # Enable hardware-adaptive mode
+    thread_aggressiveness=0.7,  # Be slightly aggressive with thread allocation
+    verbose=True                # Show detailed system information
+)
 ```
 
 **Output:**
@@ -338,14 +465,19 @@ optimizer = SystemOptimizer(enable_parallel=True)
 ======================================================
 System Resource Optimization
 ======================================================
-CPU Cores:
+CPU Information:
   - Physical cores: 8
   - Logical cores: 16
-Memory:
+  - CPU model: Intel(R) Core(TM) i7-10700K CPU @ 3.80GHz
+  - CPU frequency: 3800 MHz
+  - Current CPU load: 12.5%
+Memory Information:
   - Total memory: 32.0 GB
   - Available memory: 24.3 GB
+  - Memory available: 76.0%
 Optimization Settings:
   - Parallel enabled: True
+  - Adaptive mode: True
   - Training threads: 6
   - SHAP threads: 6
   - Hyperopt workers: 4
@@ -498,6 +630,87 @@ The SHAP values reveal:
 - **Factors decreasing income:** Being single, fewer work hours, certain occupations (Service)
 
 This information provides actionable insights about the factors that most strongly influence whether someone earns above $50,000 annually.
+
+## Understanding the Enhanced SystemOptimizer
+
+The GBM Framework's `SystemOptimizer` has been enhanced to provide more intelligent hardware-aware resource allocation. This section explains the adaptive optimization capabilities.
+
+### Key Features of the Enhanced Optimizer
+
+1. **Hardware Detection**:
+   - CPU model identification (Intel, AMD, Apple Silicon)
+   - Core count (physical vs. logical)
+   - Memory availability (total and available)
+   - CPU frequency and load
+
+2. **Adaptive Threading**:
+   - Smart thread allocation based on CPU architecture
+   - Memory-aware scaling that considers both absolute and relative memory availability
+   - Processor-specific optimizations (e.g., different strategies for Intel vs. AMD)
+
+3. **Configuration Options**:
+   - `adaptive`: Enable the advanced hardware-aware mode
+   - `thread_aggressiveness`: Control how aggressively to allocate threads (0.0-1.0)
+   - `min_threads`: Minimum threads to use regardless of calculated value
+   - `force_threads`: Bypass adaptive calculations and use exactly this many threads
+
+### Adaptive Thread Calculation
+
+The adaptive mode considers several factors to determine optimal thread count:
+
+```python
+# Memory factor based on available memory and total system memory
+memory_threshold = max(8, min(32, total_memory_gb / 4))
+memory_factor = min(1.0, available_memory_gb / memory_threshold)
+
+# Factor based on percentage of available memory
+percent_factor = max(0.5, min(1.0, memory_percent / 50))
+
+# Combined memory factor (weighted)
+combined_memory_factor = (memory_factor * 0.7) + (percent_factor * 0.3)
+
+# Thread ratio factor based on physical vs. logical cores
+thread_ratio = physical_cores / logical_cores
+thread_factor = max(0.5, thread_ratio)
+
+# CPU architecture-specific adjustments
+if 'intel' in cpu_model:
+    if 'i9' in cpu_model:
+        arch_factor = 1.1  # High-end Intel CPUs
+    elif 'i7' in cpu_model:
+        arch_factor = 1.0  # Standard for i7
+    # ...and so on for other processors
+
+# Calculate combined factor and final thread count
+combined_factor = memory_factor * thread_factor * arch_factor * thread_aggressiveness
+threads = int(physical_cores * combined_factor)
+```
+
+This approach ensures that thread allocation is optimized specifically for your hardware configuration.
+
+### Usage Examples
+
+```python
+# Basic usage with adaptive mode
+optimizer = SystemOptimizer(adaptive=True)
+
+# More aggressive thread allocation
+optimizer = SystemOptimizer(adaptive=True, thread_aggressiveness=0.8)
+
+# Maximum performance (force specific thread count)
+optimizer = SystemOptimizer(force_threads=6)
+
+# Conservative approach for memory-constrained systems
+optimizer = SystemOptimizer(adaptive=True, thread_aggressiveness=0.5, min_threads=2)
+```
+
+### Benefits of Adaptive Optimization
+
+1. **Better Default Performance**: More intelligent decisions without manual tuning
+2. **Hardware-Specific Adjustments**: Optimizations tailored to your specific CPU and memory
+3. **Balanced Resource Usage**: Prevents resource contention by considering both CPU and memory
+4. **Improved Reliability**: Reduces the risk of out-of-memory errors during computation
+5. **Flexible Control**: Can be as automatic or manual as needed for your use case
 
 ## Understanding Gradient Boosting Hyperparameters
 
