@@ -1,6 +1,6 @@
 Metadata-Version: 2.2
 Name: gbmframework
-Version: 0.2.5
+Version: 0.2.6
 Summary: A unified framework for Gradient Boosting Models with SHAP analysis
 Home-page: https://github.com/yourusername/gbmframework
 Author: Mark Attwood + Claude 3.7
@@ -564,6 +564,80 @@ The SHAP values reveal:
 
 This information provides actionable insights about the factors that most strongly influence whether someone earns above $50,000 annually.
 
+## Understanding Gradient Boosting Hyperparameters
+
+Hyperparameter tuning is essential for achieving optimal model performance. This section explains the most important hyperparameters, their effects, and recommended search ranges.
+
+### Common Hyperparameters Across Algorithms
+
+| Parameter | Description | Impact | Typical Range |
+|-----------|-------------|--------|--------------|
+| **learning_rate** | Controls the contribution of each tree to the final outcome | Lower values require more trees but can yield better performance | 0.01 - 0.3 |
+| **n_estimators** / **iterations** | Number of trees in the ensemble | More trees can improve performance but increase training time and risk of overfitting | 50 - 1000 |
+| **max_depth** / **depth** | Maximum depth of each tree | Controls complexity; deeper trees can model more complex patterns but may overfit | 3 - 10 |
+| **min_samples_leaf** / **min_child_samples** | Minimum samples required at a leaf node | Prevents overfitting by requiring more data in leaf nodes | 1 - 20 |
+| **subsample** | Fraction of samples used for tree building | Reduces overfitting by introducing randomness | 0.5 - 1.0 |
+| **colsample_bytree** | Fraction of features used for tree building | Reduces overfitting and dimensionality | 0.5 - 1.0 |
+| **reg_alpha** / **l1_regularization** | L1 regularization term | Controls model complexity by penalizing absolute coefficient size | 0 - 1.0 |
+| **reg_lambda** / **l2_regularization** | L2 regularization term | Controls model complexity by penalizing squared coefficient size | 0 - 1.0 |
+
+### XGBoost-Specific Parameters
+
+| Parameter | Description | Impact | Typical Range |
+|-----------|-------------|--------|--------------|
+| **min_child_weight** | Minimum sum of instance weight needed in a child | Controls overfitting; higher values make the model more conservative | 1 - 10 |
+| **gamma** | Minimum loss reduction required for a split | Controls complexity; higher values make the algorithm more conservative | 0 - 5 |
+| **scale_pos_weight** | Controls balance of positive and negative weights | Useful for imbalanced classes | Typically set to negative_samples/positive_samples |
+
+### LightGBM-Specific Parameters
+
+| Parameter | Description | Impact | Typical Range |
+|-----------|-------------|--------|--------------|
+| **num_leaves** | Maximum number of leaves in one tree | Controls tree complexity; should be < 2^max_depth | 20 - 150 |
+| **min_child_samples** | Minimum number of data needed in a child | Similar to min_samples_leaf in other algorithms | 10 - 50 |
+| **path_smooth** | Smoothing factor applied to tree paths | Reduces overfitting on sparse features | 0 - 0.3 |
+| **cat_smooth** | Deals with categorical features | Controls smoothing for categorical features | 10 - 50 |
+
+### CatBoost-Specific Parameters
+
+| Parameter | Description | Impact | Typical Range |
+|-----------|-------------|--------|--------------|
+| **border_count** | Number of splits for numerical features | Controls precision of numerical feature splits | 32 - 255 |
+| **l2_leaf_reg** | L2 regularization coefficient | Controls model complexity | 1 - 10 |
+| **random_strength** | Amount of randomness in the split selection | Helps prevent overfitting | 0 - 1 |
+| **bagging_temperature** | Controls intensity of Bayesian bagging | Higher values increase randomness | 0 - 1 |
+
+### RandomForest-Specific Parameters
+
+| Parameter | Description | Impact | Typical Range |
+|-----------|-------------|--------|--------------|
+| **max_features** | Maximum number of features to consider for splitting | Controls randomness in feature selection | 'sqrt', 'log2', or None |
+| **bootstrap** | Whether to use bootstrap samples | Enables or disables bootstrapping | True/False |
+| **min_impurity_decrease** | Minimum decrease in impurity required for split | Controls split threshold | 0 - 0.1 |
+| **min_samples_split** | Minimum samples required to split a node | Prevents creating very small nodes | 2 - 20 |
+
+### Hyperparameter Relationships
+
+Understanding the relationships between hyperparameters can improve tuning:
+
+1. **learning_rate and n_estimators**: These have an inverse relationship. Lower learning rates require more trees.
+
+2. **max_depth and n_estimators**: Deeper trees may require fewer estimators but risk overfitting.
+
+3. **regularization and tree complexity**: Higher regularization (reg_alpha, reg_lambda) allows for more complex trees without overfitting.
+
+4. **subsample and learning_rate**: Lower subsampling rates often work well with slightly higher learning rates.
+
+### Parameter Tuning Strategy
+
+A good strategy for hyperparameter tuning:
+
+1. Start with a moderate number of trees (100-200) and tune other parameters
+2. Focus first on tree structure parameters (max_depth, min_samples_leaf)
+3. Then tune randomness parameters (subsample, colsample_bytree)
+4. Adjust regularization parameters (reg_alpha, reg_lambda)
+5. Finally, fine-tune the learning_rate and increase n_estimators accordingly
+
 ## Building Hyperopt Search Spaces
 
 The GBM Framework leverages Hyperopt to efficiently tune model hyperparameters. Here's how to create and customize search spaces for different algorithms.
@@ -634,6 +708,48 @@ lgb_space = {
 ## Documentation
 
 For more information, see the examples directory or the source code documentation.
+
+## References
+
+### Algorithms and Original Papers
+
+1. Chen, T., & Guestrin, C. (2016). XGBoost: A Scalable Tree Boosting System. In Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (pp. 785-794). https://doi.org/10.1145/2939672.2939785
+
+2. Ke, G., Meng, Q., Finley, T., Wang, T., Chen, W., Ma, W., Ye, Q., & Liu, T.-Y. (2017). LightGBM: A Highly Efficient Gradient Boosting Decision Tree. In Advances in Neural Information Processing Systems 30 (pp. 3146-3154). https://papers.nips.cc/paper/6907-lightgbm-a-highly-efficient-gradient-boosting-decision-tree
+
+3. Dorogush, A. V., Ershov, V., & Gulin, A. (2018). CatBoost: gradient boosting with categorical features support. arXiv preprint arXiv:1810.11363. https://arxiv.org/abs/1810.11363
+
+4. Breiman, L. (2001). Random Forests. Machine Learning, 45(1), 5-32. https://doi.org/10.1023/A:1010933404324
+
+### Hyperparameter Tuning
+
+5. Bergstra, J., Yamins, D., & Cox, D. (2013). Making a Science of Model Search: Hyperparameter Optimization in Hundreds of Dimensions for Vision Architectures. In International Conference on Machine Learning (pp. 115-123). http://proceedings.mlr.press/v28/bergstra13.html
+
+6. Probst, P., Wright, M. N., & Boulesteix, A. L. (2019). Hyperparameters and tuning strategies for random forest. Wiley Interdisciplinary Reviews: Data Mining and Knowledge Discovery, 9(3), e1301. https://doi.org/10.1002/widm.1301
+
+### Explainability and SHAP
+
+7. Lundberg, S. M., & Lee, S. I. (2017). A Unified Approach to Interpreting Model Predictions. In Advances in Neural Information Processing Systems 30 (pp. 4765-4774). https://papers.nips.cc/paper/7062-a-unified-approach-to-interpreting-model-predictions
+
+8. Lundberg, S. M., Erion, G., Chen, H., DeGrave, A., Prutkin, J. M., Nair, B., Katz, R., Himmelfarb, J., Bansal, N., & Lee, S. I. (2020). From local explanations to global understanding with explainable AI for trees. Nature Machine Intelligence, 2(1), 56-67. https://doi.org/10.1038/s42256-019-0138-9
+
+### Dataset References
+
+9. Dua, D., & Graff, C. (2019). UCI Machine Learning Repository [http://archive.ics.uci.edu/ml]. Irvine, CA: University of California, School of Information and Computer Science. (Adult Income Dataset)
+
+10. Wolberg, W. H., Street, W. N., & Mangasarian, O. L. (1995). Breast cancer Wisconsin (diagnostic) dataset. UCI Machine Learning Repository.
+
+### Practical Guides and Hyperparameter Recommendations
+
+11. Brownlee, J. (2018). XGBoost With Python: Gradient Boosted Trees with XGBoost and scikit-learn. Machine Learning Mastery.
+
+12. Harrison, M. (2022). Effective XGBoost: A Complete Guide to Supercharge Your XGBoost Machine Learning. Matt Harrison.
+
+13. Microsoft Research. (2020). LightGBM Documentation. https://lightgbm.readthedocs.io/
+
+14. Yandex. (2020). CatBoost Documentation. https://catboost.ai/docs/
+
+15. Scikit-learn Developers. (2021). Random Forest Documentation. https://scikit-learn.org/stable/modules/ensemble.html#random-forests
 
 ## Credits
 
