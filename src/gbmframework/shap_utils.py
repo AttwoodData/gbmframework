@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 
 
-def generate_shap_values(model, X, algorithm_type, X_train=None, sample_size=None, 
+def generate_shap_values(model, X, X_train=None, sample_size=None, 
                        background_size=100, verbose=1, optimizer=None):
     """
     Generate SHAP values for a trained gradient boosted tree model.
@@ -17,8 +17,6 @@ def generate_shap_values(model, X, algorithm_type, X_train=None, sample_size=Non
         Trained model (XGBoost, LightGBM, CatBoost, or RandomForest)
     X : pandas.DataFrame or numpy.ndarray
         Feature dataset for SHAP calculation (typically X_test or a sample)
-    algorithm_type : str
-        Type of GBT algorithm: "xgboost", "lightgbm", "catboost", or "randomforest"
     X_train : pandas.DataFrame or numpy.ndarray, optional
         Training data, required for CatBoost SHAP calculation
     sample_size : int, optional
@@ -44,6 +42,12 @@ def generate_shap_values(model, X, algorithm_type, X_train=None, sample_size=Non
     except ImportError:
         print("SHAP not installed. Install using: pip install shap")
         return None
+    
+    # Detect algorithm type from model object
+    algorithm_type = _detect_algorithm_type(model)
+    
+    if verbose > 0:
+        print(f"Detected model type: {algorithm_type}")
     
     start_time = time.time()
     
@@ -163,7 +167,8 @@ def generate_shap_values(model, X, algorithm_type, X_train=None, sample_size=Non
                     'feature_importance': feature_importance,
                     'sample_data': X_sample,
                     'feature_names': feature_names,
-                    'computation_time': elapsed_time
+                    'computation_time': elapsed_time,
+                    'algorithm_type': algorithm_type
                 }
                 
                 # Restore original thread settings if they were changed
@@ -206,7 +211,8 @@ def generate_shap_values(model, X, algorithm_type, X_train=None, sample_size=Non
                         'feature_importance': feature_importance,
                         'sample_data': X_sample,
                         'feature_names': feature_names,
-                        'computation_time': elapsed_time
+                        'computation_time': elapsed_time,
+                        'algorithm_type': algorithm_type
                     }
                     
                     # Restore original thread settings if they were changed
@@ -295,7 +301,8 @@ def generate_shap_values(model, X, algorithm_type, X_train=None, sample_size=Non
             'feature_importance': feature_importance,
             'sample_data': X_sample,
             'feature_names': feature_names,
-            'computation_time': elapsed_time
+            'computation_time': elapsed_time,
+            'algorithm_type': algorithm_type
         }
         
         # Restore original thread settings if they were changed
@@ -311,6 +318,50 @@ def generate_shap_values(model, X, algorithm_type, X_train=None, sample_size=Non
         
         # Re-raise the exception
         raise e
+
+
+def _detect_algorithm_type(model):
+    """
+    Detect the type of machine learning algorithm from the model object.
+    
+    Parameters:
+    -----------
+    model : model object
+        The trained model to detect
+        
+    Returns:
+    --------
+    str
+        The detected algorithm type: 'xgboost', 'lightgbm', 'catboost', 'randomforest',
+        or 'unknown' if the type couldn't be determined
+    """
+    # Get the model class name and module
+    model_class = model.__class__.__name__
+    model_module = model.__class__.__module__
+    
+    # Check for XGBoost models
+    if 'xgboost' in model_module.lower() or model_class.lower().startswith('xgb'):
+        return 'xgboost'
+    
+    # Check for LightGBM models
+    elif 'lightgbm' in model_module.lower() or model_class.lower().startswith(('lgb', 'lightgbm')):
+        return 'lightgbm'
+    
+    # Check for CatBoost models
+    elif 'catboost' in model_module.lower() or model_class.lower().startswith('catboost'):
+        return 'catboost'
+    
+    # Check for scikit-learn Random Forest
+    elif (model_class.lower() == 'randomforestclassifier' or 
+          model_class.lower() == 'randomforestregressor' or
+          'randomforest' in model_class.lower()):
+        return 'randomforest'
+    
+    # Add additional checks for other models if needed
+    
+    # If we couldn't determine the type, return unknown
+    else:
+        return 'unknown'
 
 
 def visualize_shap(shap_result, plot_type='summary', class_index=1, max_display=20, 
@@ -347,6 +398,7 @@ def visualize_shap(shap_result, plot_type='summary', class_index=1, max_display=
     matplotlib.figure.Figure
         The generated plot figure
     """
+    # Function implementation remains the same as the original
     try:
         import shap
         import matplotlib.pyplot as plt

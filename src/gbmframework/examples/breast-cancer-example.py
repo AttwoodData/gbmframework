@@ -53,8 +53,7 @@ def main():
     )
     results['RandomForest'] = {
         'model': rf_result['model'],
-        'score': rf_result['best_score'],
-        'algorithm_type': 'randomforest'
+        'score': rf_result['best_score']
     }
     print(f"RandomForest AUC: {rf_result['best_score']:.4f}")
 
@@ -67,8 +66,7 @@ def main():
     )
     results['XGBoost'] = {
         'model': xgb_result['model'],
-        'score': xgb_result['best_score'],
-        'algorithm_type': 'xgboost'
+        'score': xgb_result['best_score']
     }
     print(f"XGBoost AUC: {xgb_result['best_score']:.4f}")
 
@@ -81,8 +79,7 @@ def main():
     )
     results['LightGBM'] = {
         'model': lgb_result['model'],
-        'score': lgb_result['best_score'],
-        'algorithm_type': 'lightgbm'
+        'score': lgb_result['best_score']
     }
     print(f"LightGBM AUC: {lgb_result['best_score']:.4f}")
 
@@ -95,8 +92,7 @@ def main():
     )
     results['CatBoost'] = {
         'model': cb_result['model'],
-        'score': cb_result['best_score'],
-        'algorithm_type': 'catboost'
+        'score': cb_result['best_score']
     }
     print(f"CatBoost AUC: {cb_result['best_score']:.4f}")
 
@@ -104,7 +100,6 @@ def main():
     best_model_name = max(results.keys(), key=lambda k: results[k]['score'])
     best_model = results[best_model_name]['model']
     best_score = results[best_model_name]['score']
-    best_algo_type = results[best_model_name]['algorithm_type']
 
     print(f"\nBest model: {best_model_name} with AUC = {best_score:.4f}")
 
@@ -117,12 +112,11 @@ def main():
 
     # Generate SHAP values for the best model
     print("\nGenerating SHAP values for best model...")
-    # If CatBoost is the best model, provide training data for SHAP calculation
-    if best_algo_type.lower() == 'catboost':
+    # For CatBoost models, we still need to provide X_train
+    if best_model_name == 'CatBoost':
         shap_result = generate_shap_values(
             model=best_model,
             X=X_test.iloc[:SHAP_SAMPLE_SIZE],
-            algorithm_type=best_algo_type,
             X_train=X_train,  # Pass training data for CatBoost
             verbose=1,
             optimizer=optimizer  # Pass the optimizer
@@ -131,7 +125,6 @@ def main():
         shap_result = generate_shap_values(
             model=best_model,
             X=X_test.iloc[:SHAP_SAMPLE_SIZE],
-            algorithm_type=best_algo_type,
             verbose=1,
             optimizer=optimizer  # Pass the optimizer
         )
