@@ -5,8 +5,8 @@ System Optimizer - Central manager for system resource detection and optimizatio
 class SystemOptimizer:
     """
     Central manager for system resource detection and optimization across the workflow.
-    This class optimizes and coordinates resource utilization for model training, 
-    hyperparameter optimization, and SHAP calculations.
+    This class optimizes and coordinates resource utilization for model training and
+    hyperparameter optimization.
     """
     
     def __init__(self, enable_parallel=True, memory_safety=0.8, verbose=True):
@@ -69,24 +69,34 @@ class SystemOptimizer:
                 print(f"Error detecting system resources: {str(e)}. Using conservative defaults.")
         
         # Calculate optimal thread counts based on resources
-        # For ML tasks, sometimes using all cores can cause memory pressure,
-        # especially with multiple parallel estimators
-        
         # Memory-based scaling factor
         mem_scale = min(1.0, system_info['available_memory_gb'] / 16.0)  # Scale by available memory
         mem_scale = max(0.25, mem_scale * self.memory_safety)  # Apply safety factor, minimum 0.25
         
-        # Set optimal thread counts
+        # Get the total available cores
+        total_cores = system_info['logical_cores']
+        
+        # Calculate optimal threads - dynamically adjust based on system size
+        if total_cores >= 8:
+            # For large systems, use 75% of logical cores to leave headroom for OS
+            optimal_threads = max(1, int(total_cores * 0.75 * mem_scale))
+        elif total_cores >= 4:
+            # For medium systems, use 80% of logical cores
+            optimal_threads = max(1, int(total_cores * 0.8 * mem_scale))
+        else:
+            # For small systems, use all cores
+            optimal_threads = total_cores
+        
+        # Set uniform thread allocation for all operations
         if self.enable_parallel:
-            system_info['sklearn_threads'] = max(1, int(system_info['physical_cores'] * mem_scale))
-            system_info['training_threads'] = max(1, int(system_info['physical_cores'] * mem_scale))
-            system_info['shap_threads'] = max(1, int(system_info['physical_cores'] * mem_scale))
-            system_info['hyperopt_workers'] = max(1, min(4, int(system_info['physical_cores'] * 0.75)))
+            # Use optimal thread count for everything
+            system_info['training_threads'] = optimal_threads
+            system_info['sklearn_threads'] = optimal_threads
+            system_info['hyperopt_workers'] = min(4, optimal_threads)  # Hyperopt can be unstable with too many workers
         else:
             # If parallel disabled, use single thread for everything
-            system_info['sklearn_threads'] = 1
             system_info['training_threads'] = 1
-            system_info['shap_threads'] = 1
+            system_info['sklearn_threads'] = 1
             system_info['hyperopt_workers'] = 1
         
         # Hyperopt parallel settings
@@ -113,7 +123,7 @@ class SystemOptimizer:
                 pass
             
             try:
-                # Configure LightGBM verbosity - FIXED
+                # Configure LightGBM verbosity
                 import lightgbm as lgb
                 # Different versions of LightGBM have different logger APIs
                 try:
@@ -143,7 +153,6 @@ class SystemOptimizer:
         print(f"Optimization Settings:")
         print(f"  - Parallel enabled: {self.enable_parallel}")
         print(f"  - Training threads: {self.system_info['training_threads']}")
-        print(f"  - SHAP threads: {self.system_info['shap_threads']}")
         print(f"  - Hyperopt workers: {self.system_info['hyperopt_workers']}")
         print("=" * 50)
     
@@ -163,7 +172,6 @@ class SystemOptimizer:
         """
         from hyperopt import Trials
         
-        # IMPORTANT: Because we've had issues with MongoDB
         # For this version, we'll just use sequential optimization to avoid errors
         if self.verbose:
             print("Using sequential hyperopt optimization for reliability")
@@ -208,55 +216,6 @@ class SystemOptimizer:
             }
         else:
             return params
-    
-    def optimize_shap_computation(self, shap_function):
-        """
-        Decorator to optimize SHAP computation.
-        
-        Parameters:
-        -----------
-        shap_function : function
-            Function for SHAP computation
-            
-        Returns:
-        --------
-        function
-            Optimized SHAP function
-        """
-        def optimized_shap(model, X, algorithm_type, X_train=None, sample_size=None, **kwargs):
-            # Set optimal thread count for SHAP
-            import os
-            old_threads = os.environ.get("OMP_NUM_THREADS", None)
-            os.environ["OMP_NUM_THREADS"] = str(self.system_info['shap_threads'])
-            
-            # Determine optimal sample size based on memory and dataset size
-            if sample_size is None:
-                available_mem_mb = self.system_info['available_memory_gb'] * 1024
-                # Heuristic: 1MB per sample per feature for SHAP computation
-                if hasattr(X, 'shape'):
-                    n_features = X.shape[1] if len(X.shape) > 1 else 1
-                    safe_sample_size = min(len(X), int(available_mem_mb / (n_features * 1.0)))
-                    sample_size = max(100, min(1000, safe_sample_size))
-                else:
-                    sample_size = 200  # Conservative default
-            
-            try:
-                # Call the original SHAP function with optimized parameters
-                result = shap_function(
-                    model=model,
-                    X=X,
-                    algorithm_type=algorithm_type,
-                    X_train=X_train,
-                    sample_size=sample_size,
-                    **kwargs
-                )
-                return result
-            finally:
-                # Restore original thread settings
-                if old_threads is not None:
-                    os.environ["OMP_NUM_THREADS"] = old_threads
-        
-        return optimized_shap
     
     def cleanup(self):
         """Clean up resources when done."""

@@ -4,6 +4,48 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+def _detect_algorithm_type(model):
+    """
+    Detect the type of machine learning algorithm from the model object.
+    
+    Parameters:
+    -----------
+    model : model object
+        The trained model to detect
+        
+    Returns:
+    --------
+    str
+        The detected algorithm type: 'xgboost', 'lightgbm', 'catboost', 'randomforest',
+        or 'unknown' if the type couldn't be determined
+    """
+    # Get the model class name and module
+    model_class = model.__class__.__name__
+    model_module = model.__class__.__module__
+    
+    # Check for XGBoost models
+    if 'xgboost' in model_module.lower() or model_class.lower().startswith('xgb'):
+        return 'xgboost'
+    
+    # Check for LightGBM models
+    elif 'lightgbm' in model_module.lower() or model_class.lower().startswith(('lgb', 'lightgbm')):
+        return 'lightgbm'
+    
+    # Check for CatBoost models
+    elif 'catboost' in model_module.lower() or model_class.lower().startswith('catboost'):
+        return 'catboost'
+    
+    # Check for scikit-learn Random Forest
+    elif (model_class.lower() == 'randomforestclassifier' or 
+          model_class.lower() == 'randomforestregressor' or
+          'randomforest' in model_class.lower()):
+        return 'randomforest'
+    
+    # Add additional checks for other models if needed
+    
+    # If we couldn't determine the type, return unknown
+    else:
+        return 'unknown'
 
 
 def generate_shap_values(model, X, X_train=None, sample_size=None, 
@@ -319,49 +361,6 @@ def generate_shap_values(model, X, X_train=None, sample_size=None,
         # Re-raise the exception
         raise e
 
-
-def _detect_algorithm_type(model):
-    """
-    Detect the type of machine learning algorithm from the model object.
-    
-    Parameters:
-    -----------
-    model : model object
-        The trained model to detect
-        
-    Returns:
-    --------
-    str
-        The detected algorithm type: 'xgboost', 'lightgbm', 'catboost', 'randomforest',
-        or 'unknown' if the type couldn't be determined
-    """
-    # Get the model class name and module
-    model_class = model.__class__.__name__
-    model_module = model.__class__.__module__
-    
-    # Check for XGBoost models
-    if 'xgboost' in model_module.lower() or model_class.lower().startswith('xgb'):
-        return 'xgboost'
-    
-    # Check for LightGBM models
-    elif 'lightgbm' in model_module.lower() or model_class.lower().startswith(('lgb', 'lightgbm')):
-        return 'lightgbm'
-    
-    # Check for CatBoost models
-    elif 'catboost' in model_module.lower() or model_class.lower().startswith('catboost'):
-        return 'catboost'
-    
-    # Check for scikit-learn Random Forest
-    elif (model_class.lower() == 'randomforestclassifier' or 
-          model_class.lower() == 'randomforestregressor' or
-          'randomforest' in model_class.lower()):
-        return 'randomforest'
-    
-    # Add additional checks for other models if needed
-    
-    # If we couldn't determine the type, return unknown
-    else:
-        return 'unknown'
 
 
 def visualize_shap(shap_result, plot_type='summary', class_index=1, max_display=20, 
