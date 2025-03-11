@@ -1,12 +1,13 @@
 """
-Enhanced System Optimizer with hardware-aware thread allocation and clean output
+Enhanced System Optimizer with separate thread allocation for training and SHAP
 """
 
 class SystemOptimizer:
     """
     Central manager for system resource detection and optimization across the workflow.
     This class optimizes and coordinates resource utilization for model training, 
-    hyperparameter optimization, and SHAP calculations.
+    hyperparameter optimization, and SHAP calculations with separate thread allocation
+    strategies for each task.
 
     Usage example:
     --------------
@@ -18,7 +19,6 @@ class SystemOptimizer:
     
     # Force specific thread count:
     optimizer = SystemOptimizer(force_threads=6)
-
 	# Usage examples:
 	# 1. Basic usage (adaptive by default):
 	# optimizer = SystemOptimizer()
@@ -31,8 +31,8 @@ class SystemOptimizer:
     """
     
     def __init__(self, enable_parallel=True, memory_safety=0.8, verbose=True, 
-                 min_threads=2, force_threads=None, thread_aggressiveness=0.6, 
-                 suppress_numpy_info=True):
+                 min_threads=2, force_threads=None, thread_aggressiveness=0.7, 
+                 suppress_numpy_info=True, separate_shap_threads=True):
         """
         Initialize the system optimizer.
         
@@ -48,11 +48,14 @@ class SystemOptimizer:
             Minimum number of threads to use even with low memory
         force_threads : int, optional
             If provided, forces the use of this many threads regardless of auto-detection
-        thread_aggressiveness : float, default=0.6
+        thread_aggressiveness : float, default=0.7
             How aggressively to allocate threads (0.0-1.0)
             Higher values use more threads but risk memory/resource contention
         suppress_numpy_info : bool, default=True
             Whether to suppress NumPy's detailed build/compiler information
+        separate_shap_threads : bool, default=True
+            Whether to allocate separate (higher) thread counts for SHAP calculations
+            since they occur after training and don't compete for memory
         """
         self.enable_parallel = enable_parallel
         self.memory_safety = memory_safety
@@ -61,6 +64,7 @@ class SystemOptimizer:
         self.force_threads = force_threads
         self.thread_aggressiveness = thread_aggressiveness
         self.suppress_numpy_info = suppress_numpy_info
+        self.separate_shap_threads = separate_shap_threads
         
         # If suppressing NumPy info, redirect stdout temporarily
         if self.suppress_numpy_info:
@@ -204,22 +208,36 @@ class SystemOptimizer:
         # Calculate optimal thread counts based on resources
         if self.force_threads is not None:
             # Use forced thread count if specified
-            threads = self.force_threads
-            system_info['sklearn_threads'] = threads
-            system_info['training_threads'] = threads
-            system_info['shap_threads'] = threads
-            system_info['hyperopt_workers'] = max(1, min(4, threads))
+            system_info['sklearn_threads'] = self.force_threads
+            system_info['training_threads'] = self.force_threads
+            system_info['hyperopt_workers'] = max(1, min(4, self.force_threads))
+            
+            # For SHAP, use the same forced thread count
+            system_info['shap_threads'] = self.force_threads
         
         elif self.enable_parallel:
-            # Always use adaptive thread calculation by default
-            threads = self._calculate_adaptive_threads(system_info)
+            # Calculate threads for training (memory-aware)
+            training_threads = self._calculate_adaptive_threads(system_info)
             
-            system_info['sklearn_threads'] = threads
-            system_info['training_threads'] = threads
-            system_info['shap_threads'] = threads
+            system_info['sklearn_threads'] = training_threads
+            system_info['training_threads'] = training_threads
             
             # For hyperopt, use a reduced number to avoid too much parallelism
-            system_info['hyperopt_workers'] = max(1, min(4, int(threads * 0.6)))
+            system_info['hyperopt_workers'] = max(1, min(4, int(training_threads * 0.6)))
+            
+            if self.separate_shap_threads:
+                # For SHAP, use more threads since it runs separately after training
+                # and doesn't compete for memory with the model training process
+                system_info['shap_threads'] = max(
+                    training_threads,  # At least as many as training
+                    min(
+                        system_info['physical_cores'],  # But no more than physical cores
+                        int(system_info['physical_cores'] * 0.9)  # Use up to 90% of cores
+                    )
+                )
+            else:
+                # If not using separate SHAP thread strategy, use same as training
+                system_info['shap_threads'] = training_threads
         else:
             # If parallel disabled, use single thread for everything
             system_info['sklearn_threads'] = 1
@@ -468,7 +486,7 @@ class SystemOptimizer:
             Optimized SHAP function
         """
         def optimized_shap(model, X, algorithm_type, X_train=None, sample_size=None, **kwargs):
-            # Set optimal thread count for SHAP
+            # Set optimal thread count for SHAP - using separate SHAP thread count which is higher
             import os
             old_threads = os.environ.get("OMP_NUM_THREADS", None)
             os.environ["OMP_NUM_THREADS"] = str(self.system_info['shap_threads'])

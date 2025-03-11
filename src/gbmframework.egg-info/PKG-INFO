@@ -1,6 +1,6 @@
 Metadata-Version: 2.2
 Name: gbmframework
-Version: 0.2.11
+Version: 0.2.12
 Summary: A unified framework for Gradient Boosting Models with SHAP analysis
 Home-page: https://github.com/yourusername/gbmframework
 Author: Mark Attwood + Claude 3.7
