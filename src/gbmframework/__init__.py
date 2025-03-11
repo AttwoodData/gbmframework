@@ -2,7 +2,7 @@
 GBM Framework - A unified framework for Gradient Boosting Models with SHAP analysis
 """
 
-__version__ = "0.2.10"
+__version__ = "0.2.11"
 
 # Import core components for easier access
 from .models import train_xgboost, train_lightgbm, train_catboost, train_random_forest

@@ -1,5 +1,5 @@
 """
-Enhanced System Optimizer with hardware-aware thread allocation
+Enhanced System Optimizer with hardware-aware thread allocation and clean output
 """
 
 class SystemOptimizer:
@@ -10,32 +10,29 @@ class SystemOptimizer:
 
     Usage example:
     --------------
-    # Auto-detect optimal settings based on hardware:
-    optimizer = SystemOptimizer(adaptive=True)  
+    # Basic usage (adaptive by default):
+    optimizer = SystemOptimizer()  
     
-    # Use more aggressive threading with hardware awareness:
-    optimizer = SystemOptimizer(adaptive=True, thread_aggressiveness=0.8)
+    # Adjust thread allocation aggressiveness:
+    optimizer = SystemOptimizer(thread_aggressiveness=0.8)
     
-    # Or force specific thread count:
-    optimizer = SystemOptimizer(force_threads=6)  # Use exactly 6 threads
+    # Force specific thread count:
+    optimizer = SystemOptimizer(force_threads=6)
 
 	# Usage examples:
-	# 1. Basic usage with adaptive mode:
-	# optimizer = SystemOptimizer(adaptive=True)
+	# 1. Basic usage (adaptive by default):
+	# optimizer = SystemOptimizer()
 	#
-	# 2. Aggressive adaptive mode (uses more threads):
-	# optimizer = SystemOptimizer(adaptive=True, thread_aggressiveness=0.8)
+	# 2. More aggressive thread allocation:
+	# optimizer = SystemOptimizer(thread_aggressiveness=0.8)
 	#
-	# 3. Legacy mode with memory safety:
-	# optimizer = SystemOptimizer(memory_safety=0.9, min_threads=4)
-	#
-	# 4. Maximum performance (force specific thread count):
+	# 3. Force specific thread count:
 	# optimizer = SystemOptimizer(force_threads=6)
     """
     
     def __init__(self, enable_parallel=True, memory_safety=0.8, verbose=True, 
                  min_threads=2, force_threads=None, thread_aggressiveness=0.6, 
-                 adaptive=False):
+                 suppress_numpy_info=True):
         """
         Initialize the system optimizer.
         
@@ -54,8 +51,8 @@ class SystemOptimizer:
         thread_aggressiveness : float, default=0.6
             How aggressively to allocate threads (0.0-1.0)
             Higher values use more threads but risk memory/resource contention
-        adaptive : bool, default=False
-            Whether to use advanced hardware-adaptive thread allocation
+        suppress_numpy_info : bool, default=True
+            Whether to suppress NumPy's detailed build/compiler information
         """
         self.enable_parallel = enable_parallel
         self.memory_safety = memory_safety
@@ -63,12 +60,41 @@ class SystemOptimizer:
         self.min_threads = min_threads
         self.force_threads = force_threads
         self.thread_aggressiveness = thread_aggressiveness
-        self.adaptive = adaptive
+        self.suppress_numpy_info = suppress_numpy_info
+        
+        # If suppressing NumPy info, redirect stdout temporarily
+        if self.suppress_numpy_info:
+            self._suppress_output()
+            
+        # Detect resources and configure settings
         self.system_info = self._detect_resources()
         self._configure_global_settings()
         
+        # Restore stdout if it was redirected
+        if self.suppress_numpy_info:
+            self._restore_output()
+        
         if self.verbose:
             self._print_system_info()
+    
+    def _suppress_output(self):
+        """Temporarily suppress stdout to hide NumPy build information"""
+        import os
+        import sys
+        import tempfile
+        
+        # Create a temporary file to redirect stdout
+        self._null_file = tempfile.TemporaryFile(mode='w')
+        self._old_stdout = sys.stdout
+        sys.stdout = self._null_file
+    
+    def _restore_output(self):
+        """Restore stdout after suppressing NumPy build information"""
+        import sys
+        
+        # Restore original stdout
+        sys.stdout = self._old_stdout
+        self._null_file.close()
     
     def _detect_resources(self):
         """Detect system resources and determine optimal settings."""
@@ -161,7 +187,12 @@ class SystemOptimizer:
                         output = subprocess.check_output(['sysctl', '-n', 'machdep.cpu.brand_string']).decode('utf-8').strip()
                         system_info['cpu_info']['model'] = output
                     except:
-                        system_info['cpu_info']['model'] = platform.processor()
+                        # Try alternative Mac CPU model detection
+                        try:
+                            output = subprocess.check_output(['sysctl', '-n', 'hw.model']).decode('utf-8').strip()
+                            system_info['cpu_info']['model'] = output
+                        except:
+                            system_info['cpu_info']['model'] = "Apple Silicon"
             except:
                 # If all else fails, use platform module
                 system_info['cpu_info']['model'] = platform.processor() or "Unknown"
@@ -180,17 +211,8 @@ class SystemOptimizer:
             system_info['hyperopt_workers'] = max(1, min(4, threads))
         
         elif self.enable_parallel:
-            # If using adaptive mode, calculate threads based on multiple factors
-            if self.adaptive:
-                threads = self._calculate_adaptive_threads(system_info)
-            else:
-                # Traditional memory-based scaling factor
-                mem_scale = min(1.0, system_info['available_memory_gb'] / 16.0)
-                mem_scale = max(0.25, mem_scale * self.memory_safety)
-                
-                # Calculate thread counts with minimum enforced
-                raw_threads = int(system_info['physical_cores'] * mem_scale)
-                threads = max(self.min_threads, raw_threads)
+            # Always use adaptive thread calculation by default
+            threads = self._calculate_adaptive_threads(system_info)
             
             system_info['sklearn_threads'] = threads
             system_info['training_threads'] = threads
@@ -274,7 +296,7 @@ class SystemOptimizer:
                 arch_factor = 1.0  # Standard factor for Ryzen 5
             elif 'ryzen' in cpu_model and '3' in cpu_model:
                 arch_factor = 0.9  # Slightly reduced for Ryzen 3
-        elif 'apple' in cpu_model or 'm1' in cpu_model or 'm2' in cpu_model:
+        elif 'apple' in cpu_model or 'm1' in cpu_model or 'm2' in cpu_model or 'mac' in cpu_model:
             arch_factor = 1.1  # Apple Silicon has good threading performance
         
         # Calculate combined factor
@@ -364,7 +386,6 @@ class SystemOptimizer:
         
         print(f"Optimization Settings:")
         print(f"  - Parallel enabled: {self.enable_parallel}")
-        print(f"  - Adaptive mode: {self.adaptive}")
         print(f"  - Training threads: {self.system_info['training_threads']}")
         print(f"  - SHAP threads: {self.system_info['shap_threads']}")
         print(f"  - Hyperopt workers: {self.system_info['hyperopt_workers']}")
